@@ -62,3 +62,16 @@ export async function closedPort() {
   await new Promise(r => s.close(r))
   return port
 }
+
+// An SSE reply that calls one tool (e.g. the Agent tool) and stops for its result.
+export function sseToolUse(res, model, name, input) {
+  res.writeHead(200, { 'content-type': 'text/event-stream' })
+  const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`)
+  ev('message_start', { message: { id: 'msg_tool', type: 'message', role: 'assistant', model, content: [], stop_reason: null, usage: { input_tokens: 1, output_tokens: 1 } } })
+  ev('content_block_start', { index: 0, content_block: { type: 'tool_use', id: 'toolu_e2e', name, input: {} } })
+  ev('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) } })
+  ev('content_block_stop', { index: 0 })
+  ev('message_delta', { delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 4 } })
+  ev('message_stop', {})
+  res.end()
+}
