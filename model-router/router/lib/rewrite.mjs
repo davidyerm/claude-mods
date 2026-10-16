@@ -1,6 +1,6 @@
 import { appliedLimit } from './learned.mjs'
 
-export const HOP_BY_HOP = new Set(['host', 'connection', 'content-length', 'keep-alive', 'transfer-encoding', 'proxy-connection', 'upgrade', 'te', 'trailer'])
+export const HOP_BY_HOP = new Set(['host', 'connection', 'content-length', 'keep-alive', 'transfer-encoding', 'proxy-connection', 'upgrade', 'te', 'trailer', 'proxy-authorization', 'proxy-authenticate'])
 const ROUTER_TOKEN = 'x-router-token'
 const IDENTITY = ['authorization', 'x-api-key', 'x-claude-code-session-id', ROUTER_TOKEN]
 

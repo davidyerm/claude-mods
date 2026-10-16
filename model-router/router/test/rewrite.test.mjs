@@ -8,6 +8,7 @@ const inbound = {
   connection: 'keep-alive',
   'content-length': '999',
   'accept-encoding': 'gzip, br',
+  'proxy-authorization': 'Basic x',
   authorization: 'Bearer gateway-token',
   'x-api-key': 'gateway-key',
   'x-claude-code-session-id': 'sess-1',
@@ -31,7 +32,7 @@ const base = { headers: inbound, body, providerModel: 'deepseek-chat', apiKey: '
 
 test('D9: inbound auth, identity, token and custom headers never reach a provider', () => {
   const { headers } = rewriteRouted(base)
-  for (const gone of ['authorization', 'x-claude-code-session-id', 'x-router-token', 'x-corp-trace', 'host', 'connection', 'content-length', 'accept-encoding'])
+  for (const gone of ['authorization', 'x-claude-code-session-id', 'x-router-token', 'x-corp-trace', 'host', 'connection', 'content-length', 'accept-encoding', 'proxy-authorization'])
     assert.equal(headers[gone], undefined, gone)
   assert.equal(headers['x-api-key'], 'sk-ds')
   assert.equal(headers['anthropic-version'], '2023-06-01')
@@ -67,6 +68,7 @@ test('pass-through keeps every header but hop-by-hop ones and the router token',
   assert.equal(h['x-router-token'], undefined)
   assert.equal(h.host, undefined)
   assert.equal(h['content-length'], undefined)
+  assert.equal(h['proxy-authorization'], undefined)
 })
 
 test('customHeaderNames reads LF and CRLF header lists', () => {
