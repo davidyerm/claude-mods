@@ -15,3 +15,5 @@ Claude Code mods. Add the marketplace once:
 | Cap output or context per model, for Claude and routed models | `model-limits` (planned; works best with model-router) |
 
 The plugins do not depend on each other. See each folder's README.
+
+If rtl-mode was installed from its old own marketplace, move it here: `/plugin marketplace remove rtl-mode`, `/plugin marketplace add <repo folder>`, `/plugin install rtl-mode@llm-mods`.
