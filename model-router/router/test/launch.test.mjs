@@ -75,7 +75,7 @@ test('probe: a rejected field is reported with status and text', async () => {
     ? jsonReply(res, 400, { error: { message: "unknown field 'thinking'" } })
     : jsonReply(res, 200, {}) })
   try {
-    const r = (await launch(['probe'], { input: JSON.stringify({ mode: 'provider', provider: { baseUrl: provider.url, apiKey: 'k', strip: [] }, model: 'm' }) })).json
+    const r = (await launch(['probe'], { input: JSON.stringify({ mode: 'provider', provider: { baseUrl: provider.url, apiKey: 'sk-probe-key', strip: [] }, model: 'm' }) })).json
     assert.deepEqual([r.ok, r.kind, r.status, r.text], [false, 'http', 400, "unknown field 'thinking'"])
   } finally { await provider.close() }
 })
@@ -123,4 +123,12 @@ test('versions compare as semver numbers; start reuses a same or newer router, r
   assert.equal(isReusable('0.1.0', '0.1.0', false), true)
   assert.equal(isReusable('0.0.9', '0.1.0', false), false)
   assert.equal(isReusable('0.2.0', '0.1.0', true), false)
+})
+
+test('probe: provider error text never carries the key', async () => {
+  const provider = await startFake({ handler: (req, res) => jsonReply(res, 401, { error: { message: `bad key ${req.headers['x-api-key']}` } }) })
+  try {
+    const r = (await launch(['probe'], { input: JSON.stringify({ mode: 'provider', provider: { baseUrl: provider.url, apiKey: 'sk-secret-1', strip: [] }, model: 'm' }) })).json
+    assert.deepEqual([r.ok, r.status, r.text], [false, 401, 'bad key …'])
+  } finally { await provider.close() }
 })

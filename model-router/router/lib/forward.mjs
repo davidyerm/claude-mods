@@ -80,6 +80,12 @@ export function errorMessage(text) {
   return String(text).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
 }
 
+// A provider's error text with its key replaced by "…": a provider may echo the key back.
+// Scrub the raw text before it is cut, so no part of a key survives at the cut.
+export function scrubKey(text, key) {
+  return typeof key === 'string' && key !== '' && typeof text === 'string' ? text.split(key).join('…') : text
+}
+
 export function describeFailure(r) {
   return `${r.kind}: ${r.error?.code ?? r.error?.message ?? 'failed'}`
 }

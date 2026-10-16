@@ -15,7 +15,7 @@ import { VERSION, isReusable } from './version.mjs'
 import { DEFAULT_STRIP } from './lib/schema.mjs'
 import { routerHome, routerPaths, readConfigFile, startPortOf } from './lib/config.mjs'
 import { getStatus, postShutdown, waitFor } from './lib/client.mjs'
-import { send, readText, errorMessage, describeFailure } from './lib/forward.mjs'
+import { send, readText, errorMessage, describeFailure, scrubKey } from './lib/forward.mjs'
 import { rewriteRouted } from './lib/rewrite.mjs'
 import { parseMaxTokensLimit } from './lib/learned.mjs'
 import { fingerprint } from './lib/fingerprint.mjs'
@@ -69,9 +69,9 @@ async function probe(input) {
   const once = async learned => {
     const sent = rewriteRouted({ headers: PROBE_HEADERS, body: JSON.stringify(probeRequest(input.model)), providerModel: input.model, apiKey: key, strip: p.strip ?? [...DEFAULT_STRIP], customNames: [], limits: { learned } })
     const r = await send({ url, headers: sent.headers, body: sent.body, firstByteTimeoutMs: 60_000 })
-    if (!r.ok) return { sent, failure: { kind: r.kind, text: describeFailure(r) } }
+    if (!r.ok) return { sent, failure: { kind: r.kind, text: scrubKey(describeFailure(r), key) } }
     const raw = await readText(r.res)
-    return r.res.statusCode >= 400 ? { sent, failure: { kind: 'http', status: r.res.statusCode, raw, text: errorMessage(raw) } } : { sent, status: r.res.statusCode }
+    return r.res.statusCode >= 400 ? { sent, failure: { kind: 'http', status: r.res.statusCode, raw, text: errorMessage(scrubKey(raw, key)) } } : { sent, status: r.res.statusCode }
   }
   let learnedMaxTokens
   let result = await once(undefined)

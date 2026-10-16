@@ -201,3 +201,17 @@ test('a client that hangs up mid-stream aborts the provider request and the rout
     assert.equal((await request(s.url, { method: 'GET', path: '/_router/status' })).status, 200)
   } finally { await s.cleanup() }
 })
+
+test('a provider error echoing the key never carries the key into events', async () => {
+  const s = await setup({ providerHandler: (req, res) => jsonReply(res, 401, { error: { message: `invalid x-api-key sk-ds (got "sk-ds")` } }) })
+  try {
+    const r = await request(s.url, { headers: INBOUND, body: bodyFor(MAIN) })
+    assert.equal(r.status, 200)
+    const evs = (await s.events()).filter(e => e.kind === 'provider-error' || e.kind === 'fallback')
+    assert.equal(evs.length, 2)
+    for (const e of evs) {
+      assert.equal(e.text.includes('sk-ds'), false, e.text)
+      assert.equal(e.text, 'invalid x-api-key … (got "…")')
+    }
+  } finally { await s.cleanup() }
+})

@@ -8,7 +8,7 @@ import { passThroughHeaders, rewriteRouted, withModel, customHeaderNames } from 
 import { createLearnedTable, parseMaxTokensLimit } from './learned.mjs'
 import { createBreaker } from './breaker.mjs'
 import { createEventLog, createRotatingFile } from './events.mjs'
-import { send, readText, errorMessage, describeFailure, CONNECT_TIMEOUT_MS, FIRST_BYTE_TIMEOUT_MS } from './forward.mjs'
+import { send, readText, errorMessage, describeFailure, scrubKey, CONNECT_TIMEOUT_MS, FIRST_BYTE_TIMEOUT_MS } from './forward.mjs'
 import { buildStatus } from './status.mjs'
 import { fingerprint } from './fingerprint.mjs'
 
@@ -174,7 +174,7 @@ export function createRouter(options = {}) {
 
     const { status: failedStatus } = result.failure
     if (isCount && (failedStatus === 404 || failedStatus === 400)) return sendJson(res, 200, { input_tokens: Math.ceil(body.length / 4) })
-    const message = result.failure.raw !== undefined ? errorMessage(result.failure.raw) : result.failure.text
+    const message = result.failure.raw !== undefined ? errorMessage(scrubKey(result.failure.raw, key)) : scrubKey(result.failure.text, key)
     breaker.failure(provider.name)
     events.emit({ kind: 'provider-error', session, provider: provider.name, model: providerModel, status: failedStatus, text: message })
     events.emit({ kind: 'fallback', session, provider: provider.name, model: target.fallbackModel, status: failedStatus, text: message })
