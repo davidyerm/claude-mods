@@ -1,14 +1,15 @@
 import type { Register } from 'claude-code'
 import { parseRouterArgs, runRouterCommand } from './commands'
-import { loadConfig } from './config'
+import { ambiguousText, display, findModel, loadConfig } from './config'
 import { ensureRouter } from './lifecycle'
 import { health, newMonitor, refresh, tick } from './monitor'
 import { getPaths } from './paths'
-import { registerPicker } from './picker'
-import { getPick, isRoutable, isStarted, markStarted, ROUTED_PREFIX, setPick, wireModel } from './pick'
+import { openPicker, registerPicker } from './picker'
+import { clearPick, getPick, isRoutable, isStarted, markStarted, ROUTED_PREFIX, setPick, wireModel } from './pick'
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
   const m = newMonitor()
+  const takeOver = options.takeOverModelCommand !== false
   registerPicker(on, m)
 
   on('session.start', async ($, e, next) => {
@@ -47,4 +48,24 @@ export const register: Register = on => {
     if (e.agentId !== undefined || pick === null || e.model.startsWith(ROUTED_PREFIX) || !isRoutable(m.status, pick)) return yield* next(e)
     return yield* next({ ...e, model: wireModel(pick, e.model) })
   })
+
+  // The built-in /model, taken over (D15). A bug here must never break /model,
+  // so the .catch hands the command to the built-in one.
+  on('command.run', { command: 'model' }, async ($, e, next) => {
+    if (e.origin.kind === 'plugin' && e.origin.name === 'model-router') return next(e)
+    const args = e.args.trim()
+    if (args === '') return takeOver ? openPicker($, m, 'model') : next(e)
+    const { config } = await loadConfig($, await getPaths($))
+    const match = findModel(config, args)
+    if (match.kind === 'one') {
+      await setPick($, match.ref)
+      await refresh($, m)
+      return { text: `Main model: ${display(match.ref)}${takeOver ? '' : '\ntip: use /router'}` }
+    }
+    if (match.kind === 'ambiguous') return { text: ambiguousText(args, match.refs) }
+    await clearPick($)
+    const result = await next(e)
+    await refresh($, m)
+    return result
+  }).catch(($, e, next) => next(e))
 }
