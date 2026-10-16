@@ -3,10 +3,13 @@ import {
   backupOf, classifySettings, describeSource, mergeSettings, parseBackup, pickBaseUrl, planSetup, restoreSettings, withoutTokenHeader, withTokenHeader,
 } from '../hooks/setup'
 import type { Backup } from '../hooks/setup'
-import type { World } from './world'
+import type { World, WorldOptions } from './world'
 import { BACKUP, CONFIG, readJson, run, start, TOKEN_FILE, USER_SETTINGS, world } from './world'
 
 const ROUTER = 'http://127.0.0.1:4141'
+
+// Setup runs in a session that is not wired yet: no ANTHROPIC_BASE_URL in the OS env unless a test sets one.
+const unwired = (on: Parameters<typeof world>[0], opts: WorldOptions = {}) => world(on, { ...opts, env: { ANTHROPIC_BASE_URL: undefined, ...opts.env } })
 
 function userSettings(w: World, value: Record<string, unknown> | null) {
   if (value === null) { w.files.delete(USER_SETTINGS); delete w.settings.user; return }
@@ -96,7 +99,7 @@ test('restoreSettings puts the originals back exactly', () => {
 // ---- through /router setup and /router uninstall ----
 
 test('setup from user settings: saves upstream, token, backup, rewires settings and keeps everything else', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   userSettings(w, { theme: 'dark', env: { FOO: '1', ANTHROPIC_BASE_URL: 'https://gw.corp/' } })
   await start($)
   const text = (await run($, 'router', 'setup')).text ?? ''
@@ -112,7 +115,7 @@ test('setup from user settings: saves upstream, token, backup, rewires settings 
 })
 
 test('existing custom headers are merged and backed up', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   userSettings(w, { env: { ANTHROPIC_BASE_URL: 'https://gw.corp', ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a\r\nX-Team: b' } })
   await start($)
   await run($, 'router', 'setup')
@@ -121,7 +124,7 @@ test('existing custom headers are merged and backed up', async ($, on) => {
 })
 
 test('setup twice: the second run reports and changes nothing', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   userSettings(w, { env: { ANTHROPIC_BASE_URL: 'https://gw.corp' } })
   await start($)
   await run($, 'router', 'setup')
@@ -137,7 +140,7 @@ test('setup twice: the second run reports and changes nothing', async ($, on) =>
 })
 
 test('no settings file and the gateway in the OS env: the file is created, source os', async ($, on) => {
-  const w = world(on, { config: null, env: { ANTHROPIC_BASE_URL: 'https://gw.os' } })
+  const w = unwired(on, { config: null, env: { ANTHROPIC_BASE_URL: 'https://gw.os' } })
   userSettings(w, null)
   await start($)
   await run($, 'router', 'setup')
@@ -147,14 +150,14 @@ test('no settings file and the gateway in the OS env: the file is created, sourc
 })
 
 test('nothing set anywhere: the upstream is Anthropic', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   await start($)
   await run($, 'router', 'setup')
   expect(readJson(w, CONFIG).upstream).toBe('https://api.anthropic.com')
 })
 
 test('a project setting outranks user settings: setup explains and writes nothing', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   w.settings.project = { env: { ANTHROPIC_BASE_URL: 'https://gw.project' } }
   await start($)
   const text = (await run($, 'router', 'setup')).text ?? ''
@@ -166,7 +169,7 @@ test('a project setting outranks user settings: setup explains and writes nothin
 })
 
 test('a settings file that is not a JSON object is left alone', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   w.files.set(USER_SETTINGS, '[1]')
   await start($)
   const text = (await run($, 'router', 'setup')).text ?? ''
@@ -176,7 +179,7 @@ test('a settings file that is not a JSON object is left alone', async ($, on) =>
 })
 
 test('uninstall restores the original values and removes the backup', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   userSettings(w, { theme: 'dark', env: { FOO: '1', ANTHROPIC_BASE_URL: 'https://gw.corp' } })
   await start($)
   await run($, 'router', 'setup')
@@ -188,7 +191,7 @@ test('uninstall restores the original values and removes the backup', async ($, 
 })
 
 test('uninstall after an OS-env setup removes the settings env it added', async ($, on) => {
-  const w = world(on, { config: null, env: { ANTHROPIC_BASE_URL: 'https://gw.os' } })
+  const w = unwired(on, { config: null, env: { ANTHROPIC_BASE_URL: 'https://gw.os' } })
   userSettings(w, null)
   await start($)
   await run($, 'router', 'setup')
@@ -262,7 +265,7 @@ test('parseBackup accepts only the backup shape', () => {
 })
 
 test('setup leaves an unreadable settings.json and every other file alone', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   userSettings(w, { theme: 'dark', env: { ANTHROPIC_BASE_URL: 'https://gw.corp' } })
   w.unreadable.add(USER_SETTINGS)
   await start($)
@@ -273,7 +276,7 @@ test('setup leaves an unreadable settings.json and every other file alone', asyn
 })
 
 test('uninstall leaves an unreadable settings.json and the backup alone', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   userSettings(w, { theme: 'dark', env: { ANTHROPIC_BASE_URL: 'https://gw.corp' } })
   await start($)
   await run($, 'router', 'setup')
@@ -285,7 +288,7 @@ test('uninstall leaves an unreadable settings.json and the backup alone', async 
 })
 
 test('a router on another port is rewired, keeping the upstream and the backup', async ($, on) => {
-  const w = world(on, { config: { version: 1, providers: [], overrides: {}, upstream: 'https://gw.corp' } })
+  const w = unwired(on, { config: { version: 1, providers: [], overrides: {}, upstream: 'https://gw.corp' } })
   userSettings(w, { theme: 'dark', env: { ANTHROPIC_BASE_URL: 'http://localhost:4000/', ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a\nx-router-token: old' } })
   w.files.set(BACKUP, 'KEEP')
   await start($)
@@ -297,7 +300,7 @@ test('a router on another port is rewired, keeping the upstream and the backup',
 })
 
 test('a local router with no saved upstream stops and writes nothing', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   userSettings(w, { env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:4000' } })
   await start($)
   const before = snapshot(w)
@@ -307,7 +310,7 @@ test('a local router with no saved upstream stops and writes nothing', async ($,
 })
 
 test('a stale backup (setup undone by hand) is replaced with the current values', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   userSettings(w, { env: { ANTHROPIC_BASE_URL: 'https://gw.new' } })
   w.files.set(BACKUP, JSON.stringify({ version: 1, baseUrl: 'https://gw.old', source: 'user', customHeaders: null, at: 'old' }))
   await start($)
@@ -316,7 +319,7 @@ test('a stale backup (setup undone by hand) is replaced with the current values'
 })
 
 test('a failed settings write reports what was done and what was not', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   userSettings(w, { theme: 'dark', env: { ANTHROPIC_BASE_URL: 'https://gw.corp' } })
   w.tool = (sub, args) => (sub === 'write' && args[0] === USER_SETTINGS ? { ok: false, error: 'EACCES' } : undefined)
   await start($)
@@ -329,7 +332,7 @@ test('a failed settings write reports what was done and what was not', async ($,
 })
 
 test('a symlinked settings.json is written where it lands', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   const real = 'C:/dotfiles/settings.json'
   userSettings(w, { theme: 'dark' })
   w.realPaths.set(USER_SETTINGS, real)
@@ -340,7 +343,7 @@ test('a symlinked settings.json is written where it lands', async ($, on) => {
 })
 
 test('uninstall with a malformed backup changes nothing', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   userSettings(w, { theme: 'dark' })
   w.files.set(BACKUP, JSON.stringify({ version: 1, baseUrl: 5, source: 'user' }))
   await start($)
@@ -362,7 +365,7 @@ test('restoreSettings removes headers setup copied from the OS env, keeps ones a
 })
 
 test('headers that came from the OS env are not left behind in settings.json by uninstall', async ($, on) => {
-  const w = world(on, { config: null, env: { ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a' } })
+  const w = unwired(on, { config: null, env: { ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a' } })
   userSettings(w, null)
   await start($)
   await run($, 'router', 'setup')
@@ -372,7 +375,7 @@ test('headers that came from the OS env are not left behind in settings.json by 
 })
 
 test('a settings.json that exists but cannot be resolved is not written', async ($, on) => {
-  const w = world(on, { config: null })
+  const w = unwired(on, { config: null })
   userSettings(w, { theme: 'dark', env: { ANTHROPIC_BASE_URL: 'https://gw.corp' } })
   w.unstatable.add(USER_SETTINGS)
   await start($)

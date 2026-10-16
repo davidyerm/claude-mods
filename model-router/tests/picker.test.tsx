@@ -47,6 +47,14 @@ test('the current pick, a paused and an unavailable provider are marked', () => 
   expect(all).toContain('[OR] ds-chat — unavailable: env OR_KEY not set')
 })
 
+test('an unwired session: every routed entry carries the not-active reason', () => {
+  const entries = pickerEntries({ mode: 'model', config, status: routerStatus(), sessionModel: 'claude-opus-5-5', pick: null, isWired: false })
+  const routed = entries.filter(e => e.value.startsWith('routed:'))
+  expect(routed.length).toBe(4)
+  for (const e of routed) expect(e.disabledReason).toBe('model-router is not active in this session (ANTHROPIC_BASE_URL is not the router). Run /router setup, then restart Claude Code.')
+  expect(entries.filter(e => !e.value.startsWith('routed:')).every(e => e.disabledReason === undefined)).toBe(true)
+})
+
 // The model-mode footer: /model (Task 25) opens the pane in model mode; its render test lands there.
 test('model mode main view has the "manage: /router" footer; router mode and the sub-views do not', () => {
   const entries = pickerEntries({ mode: 'model', config, status: routerStatus(), sessionModel: 'claude-opus-5-5', pick: null })

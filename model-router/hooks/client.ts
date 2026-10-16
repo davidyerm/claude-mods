@@ -19,6 +19,14 @@ export type Learned = Record<string, { maxOutputTokens: number; learnedAt: strin
 
 export const routerUrl = (port: number) => `http://127.0.0.1:${port}`
 
+// Pure: does this ANTHROPIC_BASE_URL send the session through the router on this port?
+// A trailing slash and localhost for 127.0.0.1 are the same address.
+export function isWiredTo(baseUrl: string | undefined, port: number): boolean {
+  if (!baseUrl) return false
+  const normal = baseUrl.trim().replace(/\/+$/, '').replace(/^http:\/\/localhost(?=[:/]|$)/i, 'http://127.0.0.1')
+  return normal === routerUrl(port)
+}
+
 export type Reply = { ok: true; status: number; json: unknown } | { ok: false; reason: string }
 
 // Pure: an HTTP response as a Reply; a body that is not JSON reads as null.

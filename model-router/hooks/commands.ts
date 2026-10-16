@@ -12,7 +12,7 @@ import { refresh } from './monitor'
 import type { Monitor } from './monitor'
 import { getPaths } from './paths'
 import { runSetup, runUninstall } from './setup'
-import { clearPick, setPick } from './pick'
+import { clearPick, NOT_ACTIVE_TEXT, setPick } from './pick'
 import { openPicker } from './picker'
 
 export type RouterCommand =
@@ -79,6 +79,7 @@ export async function runRouterCommand($: EngineInterface, m: Monitor, cmd: Rout
     case 'pick': {
       const match = findModel(config, cmd.name)
       if (match.kind !== 'one') return { text: notOne(cmd.name, match, modelList(config)) }
+      if (!m.isWired) return { text: NOT_ACTIVE_TEXT }
       await setPick($, match.ref)
       await refresh($, m)
       return { text: `Main model: ${display(match.ref)}` }

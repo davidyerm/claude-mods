@@ -9,9 +9,10 @@ import { getPaths } from './paths'
 import { clearPick, getPick, getSeenModel } from './pick'
 import { isForSession, statusLine, toastFor } from './status'
 
-export type Monitor = { status: RouterStatus | null; lastSeq: number; isDown: boolean; port: number }
+// isWired: this session's ANTHROPIC_BASE_URL is the router (read at session.start).
+export type Monitor = { status: RouterStatus | null; lastSeq: number; isDown: boolean; port: number; isWired: boolean }
 
-export const newMonitor = (): Monitor => ({ status: null, lastSeq: 0, isDown: false, port: 4141 })
+export const newMonitor = (): Monitor => ({ status: null, lastSeq: 0, isDown: false, port: 4141, isWired: false })
 
 // Pure: the toasts for a batch of events and the cursor after it. A router
 // answering with a lower lastSeq than the cursor has restarted: reset, no replay.
@@ -51,7 +52,7 @@ export function healthOutcome(probe: Probe, ensured: Ensure | null): HealthOutco
 
 export async function refresh($: EngineInterface, m: Monitor): Promise<void> {
   const { config } = await loadConfig($, await getPaths($))
-  $.ui.status(statusLine({ pick: await getPick($), config, status: m.status, isDown: m.isDown }))
+  $.ui.status(statusLine({ pick: await getPick($), config, status: m.status, isDown: m.isDown, isWired: m.isWired }))
 }
 
 // Every 2 s: this session's events as toasts, and the pick's validity.

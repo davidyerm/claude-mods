@@ -6,7 +6,8 @@ import { ensureRouter } from './lifecycle'
 import { health, newMonitor, refresh, tick } from './monitor'
 import { getPaths } from './paths'
 import { openPicker, registerPicker } from './picker'
-import { clearPick, getPick, isRoutable, isStarted, markStarted, ROUTED_PREFIX, setPick, wireModel } from './pick'
+import { isWiredTo } from './client'
+import { clearPick, getPick, isRoutable, isStarted, markStarted, NOT_ACTIVE_TEXT, ROUTED_PREFIX, setPick, wireModel } from './pick'
 
 export const register: Register = (on, options) => {
   const m = newMonitor()
@@ -22,6 +23,7 @@ export const register: Register = (on, options) => {
     })
     const { config } = await loadConfig($, await getPaths($))
     m.port = config.port
+    m.isWired = isWiredTo(await $.env.get('ANTHROPIC_BASE_URL'), m.port)
     const ensured = await ensureRouter($, m.port)
     if (ensured.ok) {
       m.status = ensured.status
@@ -32,8 +34,9 @@ export const register: Register = (on, options) => {
       m.status = null
       $.ui.log(`model-router: ${ensured.reason}`, { to: 'debug' })
     }
-    // $.state outlives a hot reload; the default applies once per session.
-    if (!(await isStarted($))) {
+    // $.state outlives a hot reload; the default applies once per session. An
+    // unwired session leaves it unused, so the start after setup applies it.
+    if (m.isWired && !(await isStarted($))) {
       await markStarted($)
       if (config.defaultMainModel) await setPick($, config.defaultMainModel)
     }
@@ -47,7 +50,7 @@ export const register: Register = (on, options) => {
 
   on('turn.step', async function* ($, e, next) {
     const pick = await getPick($)
-    if (e.agentId !== undefined || pick === null || e.model.startsWith(ROUTED_PREFIX) || !isRoutable(m.status, pick)) return yield* next(e)
+    if (!m.isWired || e.agentId !== undefined || pick === null || e.model.startsWith(ROUTED_PREFIX) || !isRoutable(m.status, pick)) return yield* next(e)
     return yield* next({ ...e, model: wireModel(pick, e.model) })
   })
 
@@ -60,6 +63,7 @@ export const register: Register = (on, options) => {
     const { config } = await loadConfig($, await getPaths($))
     const match = findModel(config, args)
     if (match.kind === 'one') {
+      if (!m.isWired) return { text: NOT_ACTIVE_TEXT }
       await setPick($, match.ref)
       await refresh($, m)
       return { text: `Main model: ${display(match.ref)}${takeOver ? '' : '\ntip: use /router'}` }

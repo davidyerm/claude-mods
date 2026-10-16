@@ -81,9 +81,11 @@ export type World = {
   model: string
   failSessionModel: boolean
   rawRun: { exitCode: number; stdout: string; stderr: string; isStdoutTruncated: boolean; isStderrTruncated: boolean } | null
+  env: Record<string, string>
 }
 
-export type WorldOptions = { env?: Record<string, string>; files?: Record<string, string>; config?: unknown; isRouterUp?: boolean }
+// env: a key set to undefined is unset (the default world is wired through the router).
+export type WorldOptions = { env?: Record<string, string | undefined>; files?: Record<string, string>; config?: unknown; isRouterUp?: boolean }
 
 export function up(w: World, status: RouterStatus = routerStatus()): void {
   w.http.set('GET /_router/status', () => ({ status: 200, json: status }))
@@ -128,10 +130,14 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
     model: 'claude-opus-5-5',
     failSessionModel: false,
     rawRun: null,
+    env: {},
   }
   if (config !== null) w.files.set(CONFIG, JSON.stringify(config))
   if (isRouterUp) up(w)
-  mock.env(on, { USERPROFILE: HOME, ...env })
+  const vars = { USERPROFILE: HOME, ANTHROPIC_BASE_URL: 'http://127.0.0.1:4141', ...env }
+  w.env = Object.fromEntries(Object.entries(vars).filter((kv): kv is [string, string] => kv[1] !== undefined))
+  // w.env stays editable, as a restart with a new environment would see it.
+  on('env.get', ($, e) => ({ value: w.env[e.name] }))
 
   // The engine hands fs hooks native paths (backslashes on Windows); w.files keys use /.
   on('fs.read', ($, e) => (w.unreadable.has(slash(e.path)) ? { deny: `EACCES: ${e.path}` } : w.files.has(slash(e.path)) ? { value: w.files.get(slash(e.path))! } : { deny: `ENOENT: ${e.path}` }))

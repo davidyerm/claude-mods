@@ -181,3 +181,49 @@ test('session start: a failed launch on a reload drops the old status, so the pi
   await step($)
   expect(w.stepModels.at(-1)).toBe('claude-opus-5-5')
 })
+
+// --- a session that is not wired through the router (final fix I1) ---
+
+const NOT_ACTIVE_LINE = 'router: not active — /router setup, then restart Claude Code'
+const NOT_ACTIVE = 'model-router is not active in this session (ANTHROPIC_BASE_URL is not the router). Run /router setup, then restart Claude Code.'
+
+for (const [name, value] of [['unset', undefined], ['a gateway', 'https://gw.example']] as const) {
+  test(`unwired (${name}): steps are unchanged even with defaultMainModel set, and the status line says not active`, async ($, on) => {
+    const w = world(on, { env: { ANTHROPIC_BASE_URL: value }, config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-chat' } })
+    await start($)
+    await step($)
+    expect(w.stepModels).toEqual(['claude-opus-5-5'])
+    expect(w.statusLines.at(-1)).toBe(NOT_ACTIVE_LINE)
+  })
+
+  test(`unwired (${name}): /router and /model with a routed name refuse and set no pick`, async ($, on) => {
+    const w = world(on, { env: { ANTHROPIC_BASE_URL: value } })
+    await start($)
+    expect((await run($, 'router', 'DS/ds-chat')).text).toBe(NOT_ACTIVE)
+    expect((await run($, 'model', 'DS/ds-chat')).text).toBe(NOT_ACTIVE)
+    await step($)
+    expect(w.stepModels).toEqual(['claude-opus-5-5'])
+    expect(w.statusLines.at(-1)).toBe(NOT_ACTIVE_LINE)
+  })
+}
+
+test('unwired: the default is not used up, so a start after setup still applies it once', async ($, on) => {
+  const w = world(on, { env: { ANTHROPIC_BASE_URL: 'https://gw.example' }, config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-chat' } })
+  await start($)
+  w.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:4141'
+  await start($)
+  await step($)
+  expect(w.stepModels).toEqual(['router:DS/ds-chat#claude-opus-5-5'])
+})
+
+for (const value of ['http://127.0.0.1:4141', 'http://localhost:4141/', 'http://127.0.0.1:4141/']) {
+  test(`wired (${value}): everything routes as before`, async ($, on) => {
+    const w = world(on, { env: { ANTHROPIC_BASE_URL: value }, config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-chat' } })
+    await start($)
+    expect(w.statusLines.at(-1)).toBe('main: [DS] ds-chat · haiku→[DS] ds-chat')
+    await step($)
+    expect((await run($, 'router', 'DS/ds-reasoner')).text).toBe('Main model: [DS] ds-reasoner')
+    await step($)
+    expect(w.stepModels).toEqual(['router:DS/ds-chat#claude-opus-5-5', 'router:DS/ds-reasoner#claude-opus-5-5'])
+  })
+}

@@ -8,6 +8,8 @@ import type { RouterStatus } from './client'
 export const ROUTED_PREFIX = 'router:'
 export const FALLBACK_SEP = '#'
 
+export const NOT_ACTIVE_TEXT = 'model-router is not active in this session (ANTHROPIC_BASE_URL is not the router). Run /router setup, then restart Claude Code.'
+
 export const pickAtom = atom({ plugin: 'model-router', key: 'pick' } as const, null as Pick)
 export const seenModelAtom = atom({ plugin: 'model-router', key: 'seenModel' } as const, null as string | null)
 export const startedAtom = atom({ plugin: 'model-router', key: 'isStarted' } as const, false)

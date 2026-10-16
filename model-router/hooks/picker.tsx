@@ -8,15 +8,15 @@ import { display, loadConfig, updateConfig } from './config'
 import { refresh } from './monitor'
 import type { Monitor } from './monitor'
 import { getPaths } from './paths'
-import { clearPick, getPick, providerState, setPick } from './pick'
+import { clearPick, getPick, NOT_ACTIVE_TEXT, providerState, setPick } from './pick'
 
 export const PICKER_PANE = 'model-router-picker'
 // read/update on this atom stay in this file (the engine allows them only beside the atom).
 export const pickerAtom = atom({ plugin: 'model-router', key: 'picker' } as const, null as PickerState)
 
-type EntriesInput = { mode: 'model' | 'router'; config: Config; status: RouterStatus | null; sessionModel: string; pick: string | null }
+type EntriesInput = { mode: 'model' | 'router'; config: Config; status: RouterStatus | null; sessionModel: string; pick: string | null; isWired?: boolean }
 
-export function pickerEntries({ mode, config, status, sessionModel, pick }: EntriesInput): PickerEntry[] {
+export function pickerEntries({ mode, config, status, sessionModel, pick, isWired = true }: EntriesInput): PickerEntry[] {
   const entries: PickerEntry[] = [{ value: `claude:${sessionModel}`, label: `Claude · ${sessionModel}${pick === null ? ' (current)' : ''}` }]
   for (const alias of ['opus', 'sonnet', 'haiku', 'fable'] as const) {
     const ref = config.overrides[alias]
@@ -26,7 +26,8 @@ export function pickerEntries({ mode, config, status, sessionModel, pick }: Entr
     const state = providerState(status, ref)
     const reason = status?.providers.find(p => ref.startsWith(`${p.name}/`))?.reason ?? 'not available'
     const current = ref === pick ? ' (current)' : ''
-    if (state === 'unavailable') entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current} — unavailable: ${reason}`, disabledReason: `${display(ref)} is unavailable: ${reason}` })
+    if (!isWired) entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current}`, disabledReason: NOT_ACTIVE_TEXT })
+    else if (state === 'unavailable') entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current} — unavailable: ${reason}`, disabledReason: `${display(ref)} is unavailable: ${reason}` })
     else entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current}${state === 'paused' ? ' — ⚠  paused' : ''}` })
   }
   entries.push({ value: 'builtin', label: "Claude Code's picker…" })
@@ -60,7 +61,7 @@ export function paneFooter(state: NonNullable<PickerState>): string | null {
 
 export async function openPicker($: EngineInterface, m: Monitor, mode: 'model' | 'router'): Promise<CommandRunResult> {
   const { config } = await loadConfig($, await getPaths($))
-  const entries = pickerEntries({ mode, config, status: m.status, sessionModel: await $.session.model(), pick: await getPick($) })
+  const entries = pickerEntries({ mode, config, status: m.status, sessionModel: await $.session.model(), pick: await getPick($), isWired: m.isWired })
   await update($, pickerAtom, () => ({ mode, view: { kind: 'main' }, entries }))
   await $.ui.open({ id: PICKER_PANE, title: mode === 'model' ? 'Model' : 'model-router', focus: true, closeOnEscape: true })
   return {}

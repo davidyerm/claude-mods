@@ -5,6 +5,7 @@ import { display } from './config'
 import { providerState } from './pick'
 
 export const DOWN_LINE = 'model-router DOWN — /router doctor'
+export const NOT_ACTIVE_LINE = 'router: not active — /router setup, then restart Claude Code'
 
 export function label(ref: string, status: RouterStatus | null): string {
   const provider = parseRef(ref)?.provider ?? ref
@@ -15,7 +16,8 @@ export function label(ref: string, status: RouterStatus | null): string {
   }
 }
 
-export function statusLine({ pick, config, status, isDown }: { pick: string | null; config: Config; status: RouterStatus | null; isDown: boolean }): string {
+export function statusLine({ pick, config, status, isDown, isWired = true }: { pick: string | null; config: Config; status: RouterStatus | null; isDown: boolean; isWired?: boolean }): string {
+  if (!isWired) return NOT_ACTIVE_LINE
   if (isDown) return DOWN_LINE
   const parts = [pick ? `main: ${label(pick, status)}` : 'router: /router to pick']
   for (const family of FAMILIES) {
