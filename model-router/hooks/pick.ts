@@ -3,10 +3,7 @@ import type { EngineInterface } from 'claude-code'
 import { parseRef } from '../router/lib/schema.mjs'
 import type { Pick } from '../types'
 import type { RouterStatus } from './client'
-
-// Must match router/lib/resolve.mjs.
-export const ROUTED_PREFIX = 'router:'
-export const FALLBACK_SEP = '#'
+import { FALLBACK_SEP, ROUTED_PREFIX } from '../router/lib/resolve.mjs'
 
 export const NOT_ACTIVE_TEXT = 'model-router is not active in this session (ANTHROPIC_BASE_URL is not the router). Run /router setup, then restart Claude Code.'
 

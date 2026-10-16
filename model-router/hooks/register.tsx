@@ -7,7 +7,8 @@ import { health, newMonitor, refresh, reprobe, tick } from './monitor'
 import { getPaths } from './paths'
 import { openPicker, registerPicker } from './picker'
 import { isWiredTo } from './client'
-import { clearPick, getPick, isRoutable, isStarted, markStarted, NOT_ACTIVE_TEXT, ROUTED_PREFIX, setPick, wireModel } from './pick'
+import { clearPick, getPick, isRoutable, isStarted, markStarted, NOT_ACTIVE_TEXT, setPick, wireModel } from './pick'
+import { ROUTED_PREFIX } from '../router/lib/resolve.mjs'
 
 export const register: Register = (on, options) => {
   const m = newMonitor()
