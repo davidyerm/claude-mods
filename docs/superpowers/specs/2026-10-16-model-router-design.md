@@ -72,13 +72,12 @@ They communicate **only** through the config file (written by the mod, read by t
 | Path | Writer | Contents | Persistence |
 |---|---|---|---|
 | `~/.claude/model-router.json` | User / mod (never the router) | Settings (§5.2) | Permanent |
-| `~/.claude/model-router/limits-cache.json` | Router only | Learned compatibility limits | Permanent, 30-day expiry per entry |
 | `~/.claude/model-router/token` | Mod (setup) | Local access token (D18), user-readable only | Permanent |
 | `~/.claude/model-router/setup-backup.json` | Mod (setup) | Original `ANTHROPIC_BASE_URL`, its source, and the original `ANTHROPIC_CUSTOM_HEADERS` | Until uninstall |
 | `~/.claude/model-router/events.jsonl` | Router | Event log (rotated, 1 MB × 3) | Short |
 | `~/.claude/model-router/router.log` | Router | One line per routed request (rotated, 5 MB × 3) | Short |
 
-Circuit-breaker state lives only in router memory. The session main pick lives in mod `$.state`.
+Circuit-breaker state and learned limits (§5.3) live only in router memory. The session main pick lives in mod `$.state`.
 
 **Writes are atomic:** re-read, write a temp file, rename. Logs never contain prompts, responses or keys.
 
@@ -96,7 +95,7 @@ Circuit-breaker state lives only in router memory. The session main pick lives i
       "apiKeyEnv": "DEEPSEEK_API_KEY",           // preferred; or "apiKey": "sk-…"
       "strip": ["anthropic-beta", "thinking", "context_management", "output_config"],  // optional, default shown
       "models": [
-        { "id": "deepseek-chat", "maxOutputTokens": 8192 }   // maxOutputTokens optional
+        { "id": "deepseek-chat" }                // no limits here (§5.3)
       ]
     }
   ],
@@ -112,37 +111,20 @@ Circuit-breaker state lives only in router memory. The session main pick lives i
   - Families limited to `haiku|sonnet|opus|fable`.
   - Exactly one of `apiKeyEnv` / `apiKey`.
   - `baseUrl` is https, or http on loopback.
-- **Precedence of limits:** config `maxOutputTokens` > `limits-cache.json` (unexpired) > none.
 
-### 5.3 `limits-cache.json` rules
+### 5.3 Limits: mechanism in the router, configuration in model-limits
 
-- **Scope:**
-  - Routed models only.
-  - Holds **only `maxOutputTokens`**. Context windows are model-limits' concern (§11).
-  - Keyed by `Provider/model-id`.
-- **Shape:**
-  ```json
-  {
-    "_comment": "auto-managed cache; put permanent limits in model-router.json",
-    "version": 1,
-    "entries": {
-      "DeepSeek/deepseek-chat": {
-        "maxOutputTokens": 8192,
-        "learnedAt": "2026-10-15T14:02:11Z",
-        "source": "400: max_tokens must be <= 8192"
-      }
-    }
-  }
-  ```
-- **It's a cache, not configuration.** Permanent limits belong in `model-router.json`, which always wins. Doctor's "copy to config" moves entries there.
-- **Manual edits are honored and never clobbered:**
-  - The router **watches** the file (debounced 300 ms) and reloads on change.
-  - Before every write it **re-reads and merges**, changing only the entry it just learned.
-  - Deleting the file equals `/router forget all`.
-- **A broken file never breaks routing:**
-  - On invalid JSON, keep the last good copy in memory, emit `config-error`, and **don't write**: the user may be mid-edit.
-  - On the next learn, rename the broken file to `limits-cache.json.bad` and write a fresh one.
-- **Expiry:** entries older than 30 days are ignored, and dropped on the next write.
+The router has **no limit configuration**. Configured limits (caps, context windows, limits for Claude models) belong only to model-limits (§11). The router keeps two separate in-memory tables, each with one writer:
+
+| Table | Writer | Contents | Lifetime |
+|---|---|---|---|
+| **learned** | Router, from provider 400s (§6.4) | Facts: `{ maxOutputTokens, learnedAt, source }` per routed `Provider/model-id` | Router memory only. Cleared by restart or `/router forget` |
+| **policy** | model-limits, via `POST /_router/policy` (§11) | Intent: output caps the user configured | Until model-limits replaces or withdraws it |
+
+- **Applied limit:** `max_tokens = min(requested, learned, policy)`, using whichever exist. Never raised.
+- **Learn-and-retry always stays in the router.** Without it, routed models fail whenever model-limits isn't installed, because Claude Code asks for more than providers allow (e.g. 32000 vs. 8192).
+- **Not persisted.** The cost is one fast 400 and a retry per model after each router restart, and no tokens are spent on it. In return there are no stale values and no cache file to manage.
+- **model-limits reads but never writes the learned table.** It reads it through `GET /_router/limits` (§6.1) to display it, warn (for example when a configured cap is higher than a learned limit) and decide its policy. It never copies learned values into its policy. If it did, the router could no longer tell fact from intent, and `/router forget` would be undone by the next policy push.
 
 ## 6. Router
 
@@ -160,7 +142,9 @@ A Node 24 ESM program with **no dependencies**, `router/router.mjs`, plus focuse
 
 - Binds **`127.0.0.1:<port>` only**.
 - `HEAD /api/hello` → 200, answered locally.
-- `GET /_router/status` → `{ name: "model-router", version, pid, uptimeMs, upstream, providers: [{ name, available, reason?, breaker }], models: [{ ref, maxOutputTokens, source }], policyApi: 1 }`. The `name` field is the identity check: a port answering without it is "not ours".
+- `GET /_router/status` → `{ name: "model-router", version, pid, uptimeMs, upstream, providers: [{ name, available, reason?, breaker }], models: [{ ref }], policyApi: 1 }`. The `name` field is the identity check: a port answering without it is "not ours".
+- `GET /_router/limits` → `{ learned: { "<Provider/model-id>": { maxOutputTokens, learnedAt, source } }, policy: <current policy or null> }`. Read-only. No token is needed, because it holds no secrets.
+- `POST /_router/forget` (token required), body `{ ref: "<Provider/model-id>" | "all" }`: clears entries from the learned table.
 - `POST /_router/shutdown?drain=1` (token required): stop accepting, finish in-flight streams, exit.
 - Reserved for model-limits: `POST /_router/policy` (§11), version `policyApi: 1`. **Answers 501 in this release.**
 
@@ -181,14 +165,14 @@ A request is never routed twice: fallback goes straight to upstream.
    - Keep `anthropic-version`.
 2. **Model:** `model ← provider model ID`.
 3. **Strip (D10):** remove the listed headers/body fields. The default list is above. `cache_control` is kept unless listed.
-4. **Clamp (D11):** `max_tokens ← min(max_tokens, limit)` when a limit is known. Never raised.
+4. **Clamp (D11):** `max_tokens ← min(max_tokens, learned, policy)` with whichever limits are known (§5.3). Never raised.
 5. Pass-through requests are forwarded **byte-for-byte** with all headers except hop-by-hop ones (`host`, `connection`, `content-length` recomputed only if needed). The router still removes `x-router-token`, which only exists for the router.
 
 ### 6.4 Forward, fallback, learning
 
 - Responses (SSE or JSON) are **streamed through unbuffered**.
 - **Before the first response byte:** on a connection error, timeout (connect 10 s, first byte 120 s), 5xx, 429 or 4xx:
-  - **400 matching a `max_tokens` limit message** → parse the limit (fallback value 8192), save it to `limits-cache.json`, retry **once on the same provider** with the clamped value, and emit `learned` event.
+  - **400 matching a `max_tokens` limit message** → parse the limit (fallback value 8192), store it in the in-memory learned table, retry **once on the same provider** with the clamped value, and emit `learned` event.
   - **Otherwise** → retry **once on upstream** with the original Claude model ID and the request's **original inbound headers**, kept in memory for this request only. Emit a `fallback` event with status and the provider's error text (≤200 chars). Count a breaker failure.
 - **After the first byte:** errors pass through unchanged (D8).
 - **Pass-through errors are only observed:** emit an `upstream-error` event (for model-limits) and change nothing.
@@ -299,12 +283,12 @@ The hook is `command.run`, matching `{ command: 'model' }`, wrapped in `.catch(�
 | `/router <name>` / `/router claude` | Set / clear the session pick |
 | `/router default <name\|clear>` | Write `defaultMainModel` (new sessions only) |
 | `/router override <family> <name\|clear>` | Write `overrides[family]` (global, takes effect on the next request in all sessions) |
-| `/router add` | Wizard: name → base URL → key (`apiKeyEnv` name by default, a literal key allowed with a warning) → model IDs → optional `maxOutputTokens` → test call → save |
+| `/router add` | Wizard: name → base URL → key (`apiKeyEnv` name by default, a literal key allowed with a warning) → model IDs → test call → save |
 | `/router remove <provider\|provider/model>` | Remove, and clear overrides/default pointing at it (with a warning) |
 | `/router setup` | §7.8 |
 | `/router uninstall` | Restore from `setup-backup.json` (future sessions). Never stops the router |
 | `/router doctor [--offline]` | §7.9 |
-| `/router forget <provider/model\|all>` | Clear learned entries (via the router: `POST /_router/forget`, token required) |
+| `/router forget <provider/model\|all>` | Clear entries from the router's in-memory learned table (`POST /_router/forget`) |
 
 A subcommand name beats a same-named model; the user then writes `Provider/model`.
 
@@ -322,7 +306,7 @@ A subcommand name beats a same-named model; the user then writes `Provider/model
 |---|---|
 | `fallback` | `[DeepSeek] 429 → used claude-haiku-5-5` |
 | `fallback`, with provider error text | `[Kimi] rejected (400: unknown field 'thinking') — /router doctor` |
-| `learned` | `[DeepSeek] max output 8192 learned — add "maxOutputTokens": 8192 to config` |
+| `learned` | `[DeepSeek] max output 8192 learned` |
 | `breaker-open` / `breaker-close` | One toast each |
 | `config-error` | File plus field/line |
 
@@ -354,7 +338,7 @@ A checklist with ✓ / ⚠ / ✗ marks and a fix line for every non-✓ item:
   - TLS.
   - A **test request** reporting the rejected field or the learned `max_tokens` (skipped with `--offline`).
 - Breakers.
-- Learned limits, with an offer to copy them into config.
+- Learned limits and any registered policy, read-only (from `GET /_router/limits`).
 - Literal keys in config (warn).
 - One line: `Optional: model-limits (per-model context/output policies)`.
 
@@ -393,7 +377,7 @@ TDD throughout: test first, then code.
    - Resolve.
    - Rewrite: D9 headers/metadata, strip defaults, clamp never raises, pass-through identical.
    - Limit parsing from a fixture set of real provider error strings.
-   - Learned precedence and expiry.
+   - Limits: `min(requested, learned, policy)` for every combination of present/absent; forget one/all.
    - Breaker with a fake clock.
    - Config validation and keep-last-valid.
    - Event ring.
@@ -402,7 +386,7 @@ TDD throughout: test first, then code.
    - Byte-identical pass-through.
    - Fallback for each failure class, using the original inbound auth.
    - Mid-stream pass-through.
-   - `max_tokens` learn and retry.
+   - `max_tokens` learn and retry; the learned value shows in `GET /_router/limits` and is gone after a restart.
    - Token required for routed requests only.
    - `HEAD /api/hello`, status identity, drain, bind race, idle exit.
    - **HTTPS upstream with a self-signed CA**, trusted vs. untrusted.
@@ -443,12 +427,17 @@ Each one, if it fails, changes the design at the noted point.
 
 ## 11. Related: model-limits (separate plugin, later)
 
-- **Owns:** per-model `contextWindow` and `maxOutputTokens` *policy* for **all** models; learning from errors; compaction via `$.session.usage()` + `$.session.compact()`.
-- **With the router present:** registers output-cap rules at `POST /_router/policy` (`policyApi: 1`). The router applies them, including to pass-through traffic, only while rules are registered. It learns from `upstream-error` and `provider-error` events.
-- **No overlap with the router's cache:**
-  - Separate files, one writer each: `~/.claude/model-router/limits-cache.json` (router) and `~/.claude/model-limits/limits-cache.json` (model-limits).
-  - The router's file covers routed models and holds only compatibility `maxOutputTokens`. model-limits covers all models, with `contextWindow` plus `maxOutputTokens` policy.
-  - When both cap a routed request: **`max_tokens = min(requested, router limit, policy cap)`**. Both are upper bounds, so no tiebreak is needed.
+- **Owns all limit configuration**, for **all** models: per-model `contextWindow` and `maxOutputTokens`, and compaction via `$.session.usage()` + `$.session.compact()`. The user configures limits in one place only.
+- **What its config is for**, given that the router learns provider maximums anyway:
+  - Caps below the provider's maximum (cost, speed).
+  - Known limits set ahead of time, so there is no first 400.
+  - Limits for the org's Claude models (e.g. a gateway that caps silently, leaving nothing to learn).
+  - Context windows, which the router never learns.
+- **With the router present** (the two directions are separate):
+  - **Writes policy:** turns its config into output-cap rules and registers them at `POST /_router/policy` (`policyApi: 1`). The router applies them, including to pass-through traffic, only while rules are registered.
+  - **Reads facts:** `GET /_router/limits` for the learned table, plus the `upstream-error` / `provider-error` events. It combines these with its config however its own logic decides, but never writes learned values back as policy (§5.3).
+  - **Applied limit:** `max_tokens = min(requested, learned, policy)`. Every term is an upper bound, so no tiebreak is needed.
+- Any persistence of its own (e.g. `~/.claude/model-limits/`) is its own decision. The router persists no limits.
 - **Without the router:** context compaction only. It tells users about the router when a rule needs it (inline on rule creation, one toast per session if rules are inactive, `/limits status`).
 - **Open question for the user:** is the org's need for Claude models context, output, or both?
 - Gets its own brainstorm, spec and plan.
