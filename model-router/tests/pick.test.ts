@@ -22,3 +22,8 @@ test('provider state comes from the last router status', () => {
   expect(isRoutable(routerStatus(), 'DS/ds-chat')).toBe(true)
   expect(isRoutable(null, 'DS/ds-chat')).toBe(false)
 })
+
+test('a provider the last status does not list yet is routable once a status is known (final fix I5)', () => {
+  expect(isRoutable(routerStatus({ providers: [] }), 'New/m1')).toBe(true)
+  expect(isRoutable(null, 'New/m1')).toBe(false)
+})

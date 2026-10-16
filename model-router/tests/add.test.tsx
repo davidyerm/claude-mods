@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { RenderSurface } from 'claude-code'
 import { ADD_PANE, probeSummary, providerOf } from '../hooks/add'
-import { CONFIG, PANE_PROPS, readJson, run, start, world } from './world'
+import { CONFIG, PANE_PROPS, readJson, run, start, step, world } from './world'
 
 const draw = ($: Engine, surface: RenderSurface = 'terminal') =>
   $.ui.render({ surface, component: 'Pane', requestId: ADD_PANE, props: { ...PANE_PROPS } })
@@ -116,4 +116,20 @@ test('duplicate model IDs are dropped, first-seen order kept', async ($, on) => 
   await draw($)
   await $.ui.select({ plugin: 'model-router', key: 'add-finish', value: 'save' })
   expect(readJson(w, CONFIG).providers.at(-1).models).toEqual([{ id: 'm1' }, { id: 'm2' }])
+})
+
+test('/router add, save, then /model New/m1: the next step routes with no clock advance (final fix I5)', async ($, on) => {
+  const w = world(on)
+  await open($)
+  await enter($, 'add-name', 'New')
+  await enter($, 'add-baseUrl', 'https://new.example')
+  await enter($, 'add-key', 'NEW_KEY')
+  await enter($, 'add-models', 'm1')
+  await draw($)
+  const probes = w.fetches.filter(f => f.url.endsWith('/_router/status')).length
+  await $.ui.select({ plugin: 'model-router', key: 'add-finish', value: 'save' })
+  expect(w.fetches.filter(f => f.url.endsWith('/_router/status')).length).toBe(probes + 1)
+  expect((await run($, 'model', 'New/m1')).text).toBe('Main model: [New] m1')
+  await step($)
+  expect(w.stepModels).toEqual(['router:New/m1#claude-opus-5-5'])
 })

@@ -8,7 +8,7 @@ import type { Match } from './config'
 import { runDoctor } from './doctor'
 import { readText } from './host'
 import { ensureRouter } from './lifecycle'
-import { refresh } from './monitor'
+import { refresh, reprobe } from './monitor'
 import type { Monitor } from './monitor'
 import { getPaths } from './paths'
 import { runSetup, runUninstall } from './setup'
@@ -82,6 +82,7 @@ export async function runRouterCommand($: EngineInterface, m: Monitor, cmd: Rout
       if (match.kind !== 'one') return { text: notOne(cmd.name, match, modelList(config)) }
       if (!m.isWired) return { text: NOT_ACTIVE_TEXT }
       await setPick($, match.ref)
+      await reprobe($, m)
       await refresh($, m)
       return { text: `Main model: ${display(match.ref)}` }
     }

@@ -6,7 +6,7 @@ import { loadConfig, updateConfig } from './config'
 import type { RawProvider } from './config'
 import { runTool } from './host'
 import type { ToolOut } from './host'
-import { refresh } from './monitor'
+import { refresh, reprobe } from './monitor'
 import type { Monitor } from './monitor'
 import { getPaths } from './paths'
 
@@ -97,6 +97,7 @@ export async function finishWizard($: EngineInterface, m: Monitor, choice: strin
     if (!r.ok) { await update($, wizardAtom, s => (s ? { ...s, message: `Not saved: ${r.message}` } : s)); return }
     const n = provider.models.length
     await $.ui.toast(`Added [${provider.name}] with ${n} model${n === 1 ? '' : 's'}. Pick one: /model ${provider.name}/${provider.models[0]!.id}`)
+    await reprobe($, m)
     await refresh($, m)
   }
   await update($, wizardAtom, () => null)

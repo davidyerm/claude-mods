@@ -237,3 +237,23 @@ test('an invalid config with a valid port: the router is ensured and monitored o
   expect(statusUrls.every(u => u.startsWith('http://127.0.0.1:5000/'))).toBe(true)
   expect(w.statusLines.at(-1)).toBe('router: /router to pick')
 })
+
+// --- a just-added provider routes at once (final fix I5) ---
+
+test('a pick whose provider is missing from the status still routes once a status is known', async ($, on) => {
+  const w = world(on, { config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-chat' } })
+  up(w, routerStatus({ providers: [{ name: 'OR', available: true, breaker: 'closed' }] }))
+  await start($)
+  await step($)
+  expect(w.stepModels).toEqual(['router:DS/ds-chat#claude-opus-5-5'])
+})
+
+test('a pick re-probes the router: the new state shows without a clock advance', async ($, on) => {
+  const w = world(on)
+  await start($)
+  up(w, routerStatus({ providers: [{ name: 'DS', available: true, breaker: 'open' }, { name: 'OR', available: true, breaker: 'closed' }] }))
+  await run($, 'router', 'DS/ds-chat')
+  expect(w.statusLines.at(-1)).toBe('main: [DS] ⚠  paused · haiku→[DS] ⚠  paused')
+  await step($)
+  expect(w.stepModels).toEqual(['claude-opus-5-5'])
+})

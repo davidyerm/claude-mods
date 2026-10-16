@@ -50,6 +50,13 @@ export function healthOutcome(probe: Probe, ensured: Ensure | null): HealthOutco
   return { status: null, isDown: true }
 }
 
+// After a pick or a save: the router's status now, so a just-added provider or a
+// changed state counts without waiting for the 10 s health check.
+export async function reprobe($: EngineInterface, m: Monitor): Promise<void> {
+  const probe = await probeRouter($, m.port)
+  if (probe.kind === 'ours') { m.status = probe.status; m.isDown = false }
+}
+
 export async function refresh($: EngineInterface, m: Monitor): Promise<void> {
   const { config } = await loadConfig($, await getPaths($))
   $.ui.status(statusLine({ pick: await getPick($), config, status: m.status, isDown: m.isDown, isWired: m.isWired }))

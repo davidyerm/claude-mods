@@ -5,7 +5,7 @@ import type { Config } from '../router/lib/schema.mjs'
 import type { PickerEntry, PickerState } from '../types'
 import type { RouterStatus } from './client'
 import { display, loadConfig, updateConfig } from './config'
-import { refresh } from './monitor'
+import { refresh, reprobe } from './monitor'
 import type { Monitor } from './monitor'
 import { getPaths } from './paths'
 import { clearPick, getPick, NOT_ACTIVE_TEXT, providerState, setPick } from './pick'
@@ -101,6 +101,7 @@ export async function choose($: EngineInterface, m: Monitor, value: string): Pro
     case 'routed': {
       await setPick($, rest)
       await closePicker($)
+      await reprobe($, m)
       await refresh($, m)
       await $.ui.toast(`Main model: ${display(rest)}`)
       return

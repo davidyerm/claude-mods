@@ -55,4 +55,9 @@ export function providerState(status: RouterStatus | null, ref: string): 'ok' | 
   return 'ok'
 }
 
-export const isRoutable = (status: RouterStatus | null, ref: string) => providerState(status, ref) === 'ok'
+// A provider the last status does not list yet (just added) is routable once the router
+// answered: the router falls back with a toast if it cannot serve it.
+export function isRoutable(status: RouterStatus | null, ref: string): boolean {
+  const state = providerState(status, ref)
+  return state === 'ok' || (state === 'unknown' && status !== null)
+}

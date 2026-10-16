@@ -3,7 +3,7 @@ import { parseRouterArgs, runRouterCommand } from './commands'
 import { registerWizard } from './add'
 import { ambiguousText, display, findModel, loadConfig, portOf } from './config'
 import { ensureRouter } from './lifecycle'
-import { health, newMonitor, refresh, tick } from './monitor'
+import { health, newMonitor, refresh, reprobe, tick } from './monitor'
 import { getPaths } from './paths'
 import { openPicker, registerPicker } from './picker'
 import { isWiredTo } from './client'
@@ -66,6 +66,7 @@ export const register: Register = (on, options) => {
     if (match.kind === 'one') {
       if (!m.isWired) return { text: NOT_ACTIVE_TEXT }
       await setPick($, match.ref)
+      await reprobe($, m)
       await refresh($, m)
       return { text: `Main model: ${display(match.ref)}${takeOver ? '' : '\ntip: use /router'}` }
     }
