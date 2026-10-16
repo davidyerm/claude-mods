@@ -16,8 +16,9 @@ Date: 2026-10-15 · Claude Code build at time of research: 2.1.300
 | Propose approaches | done → **Approach A chosen** |
 | Present design sections | Sections 1–4 (architecture, data flow, error handling, testing) **all approved** |
 | Spike: open risks (a), (b), (d) | **done**, see Spike results |
-| Write spec | **done:** `docs/superpowers/specs/2026-10-16-model-router-design.md` (self-reviewed; not committed, since `C:\dev\llm\mods` isn't a git repo) |
-| User reviews spec → `superpowers:writing-plans` | **awaiting user review of the spec** |
+| Write spec | **done:** `docs/superpowers/specs/2026-10-16-model-router-design.md`, committed on branch `model-router` |
+| User reviews spec | **APPROVED 2026-10-16** (after review changes: `limits-cache.json` rules, then D19 limits ownership, then the answered Claude-limits question) |
+| `superpowers:writing-plans` | **NEXT**, to be done in a new session |
 
 > **The spec is now the authoritative design.** Where this file and the spec differ, the spec wins. Spec-time refinements: events are served over HTTP (`/_router/events`) as well as the file; the fallback model is encoded in the routed ID (`router:P/m#<claude-id>`); `x-router-fallback-model` was dropped; verification items V1–V7 come first in the plan.
 
@@ -198,9 +199,15 @@ Method (throwaway, in the session scratchpad): a Node capture server on `127.0.0
 
 ## Next steps
 
-1. ~~Approve Architecture (Section 1)~~ **Approved.** ~~Spike~~ **Done** (see Spike results).
-2. ~~Ask where the mod lives~~ **Decided:** `C:\dev\llm\mods\model-router\`, next to `rtl-mode`.
-3. Run the **spike** on risk (a), plus (b) if cheap. Results are throwaway and get recorded here.
-4. Present the remaining design sections one at a time, each needing approval: **data flow** (request lifecycle, `/router` UX), **error handling** (fallback, router down, bad config), **testing** (router unit tests, `claude plugin test`, a manual end-to-end check against one real provider).
-5. Write the spec to `docs/superpowers/specs/2026-10-15-model-router-design.md`, self-review it, and have the user review it.
-6. Invoke `superpowers:writing-plans`.
+**Brainstorming is complete; the spec is approved (2026-10-16).** Resume in a new session as follows:
+
+1. `cd C:\dev\llm\mods`, then `git checkout model-router` (all work so far is on this branch, not pushed).
+2. Read the spec `docs/superpowers/specs/2026-10-16-model-router-design.md` in full. It is authoritative; this file is background.
+3. Load the `plugin-authoring` skill again (the mod-API types path changes on every load).
+4. Invoke **`superpowers:writing-plans`** with the spec. The plan's first tasks are verification items **V1–V7** (spec §10). Save the plan under `docs/superpowers/plans/` and commit it.
+5. The user reviews the plan and picks the execution method. No implementation code before that.
+6. The plan includes the root marketplace merge (spec §12). model-limits is **out of scope**: it gets its own brainstorm, spec and plan later.
+
+Helpers kept in the repo: `docs/model-router-spike/` holds the throwaway spike (a fake Anthropic endpoint that logs requests, plus a `turn.step` probe mod). It's reusable for V2 and V7. Run it with `node docs/model-router-spike/capture-server.mjs` (port 4199) and `ANTHROPIC_BASE_URL=http://127.0.0.1:4199`.
+
+Environment notes: `rtk` (required by the user's global CLAUDE.md) is not on the Git Bash PATH, so plain `git` was used. Commit messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
