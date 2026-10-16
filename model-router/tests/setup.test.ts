@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import {
-  backupOf, describeSource, mergeSettings, pickBaseUrl, planSetup, restoreSettings, withoutTokenHeader, withTokenHeader,
+  backupOf, classifySettings, describeSource, mergeSettings, parseBackup, pickBaseUrl, planSetup, restoreSettings, withoutTokenHeader, withTokenHeader,
 } from '../hooks/setup'
 import type { Backup } from '../hooks/setup'
 import type { World } from './world'
@@ -47,9 +47,9 @@ const plan = (over: Partial<Parameters<typeof planSetup>[0]> = {}) =>
   planSetup({ base: { value: 'https://gw.corp/', source: 'user' }, url: ROUTER, upstreamNow: undefined, settings: {}, loadedErrors: null, configPath: 'C', settingsPath: 'S', ...over })
 
 test('planSetup: proceeds with a trimmed upstream; Anthropic when nothing is set', () => {
-  expect(plan()).toEqual({ kind: 'proceed', upstream: 'https://gw.corp' })
-  expect(plan({ base: { value: undefined, source: 'none' } })).toEqual({ kind: 'proceed', upstream: 'https://api.anthropic.com' })
-  expect(plan({ base: { value: 'https://gw.os', source: 'os' }, settings: null })).toEqual({ kind: 'proceed', upstream: 'https://gw.os' })
+  expect(plan()).toMatchObject({ kind: 'proceed', upstream: 'https://gw.corp', isUpstreamSaved: true, rewiredFrom: null })
+  expect(plan({ base: { value: undefined, source: 'none' } })).toMatchObject({ kind: 'proceed', upstream: 'https://api.anthropic.com' })
+  expect(plan({ base: { value: 'https://gw.os', source: 'os' }, settings: null })).toMatchObject({ kind: 'proceed', upstream: 'https://gw.os' })
 })
 
 test('planSetup: stops for a project setting, an already-wired URL, a bad config or a bad settings file', () => {
@@ -193,4 +193,158 @@ test('uninstall after an OS-env setup removes the settings env it added', async 
   await run($, 'router', 'setup')
   await run($, 'router', 'uninstall')
   expect(readJson(w, USER_SETTINGS)).toEqual({})
+})
+
+// ---- fix round 1 ----
+
+const snapshot = (w: World) => JSON.stringify([...w.files.entries()])
+
+test('classifySettings: an unreadable file is never a missing one', () => {
+  expect(classifySettings(null, false, {})).toBe(null)
+  expect(classifySettings(null, true, {})).toBe('unreadable')
+  expect(classifySettings(null, false, { theme: 'dark' })).toBe('unreadable')
+  expect(classifySettings('{"a":1}', true, {})).toEqual({ a: 1 })
+  expect(classifySettings('[1]', true, {})).toBe('invalid')
+  expect(classifySettings('{', true, {})).toBe('invalid')
+})
+
+test('planSetup: unreadable settings stop setup with the exact text', () => {
+  expect(plan({ settings: 'unreadable', settingsPath: 'S' })).toEqual({
+    kind: 'stop',
+    text: 'Could not read S; nothing was changed. Check that no other plugin blocks reading it, then run /router setup again.',
+  })
+})
+
+test('planSetup: a loopback base is a router, never an upstream', () => {
+  for (const old of ['http://127.0.0.1:4000', 'http://localhost:4141/', 'http://[::1]:4141']) {
+    expect(plan({ base: { value: old, source: 'user' }, upstreamNow: 'https://gw.corp' }))
+      .toEqual({ kind: 'proceed', upstream: 'https://gw.corp', isUpstreamSaved: false, isBackupWritten: false, rewiredFrom: old })
+  }
+  // The same router: a trailing slash or localhost is not another router on this port.
+  const same = plan({ base: { value: 'http://127.0.0.1:4141/', source: 'user' }, upstreamNow: 'https://gw.corp' })
+  expect(same.kind === 'stop' && same.text.startsWith(`Already set up: ANTHROPIC_BASE_URL → ${ROUTER}`)).toBe(true)
+  expect(plan({ base: { value: 'http://127.0.0.1:4000', source: 'user' }, upstreamNow: undefined, configPath: 'C' })).toEqual({
+    kind: 'stop',
+    text: 'ANTHROPIC_BASE_URL already points at a local router (http://127.0.0.1:4000) and no upstream is saved; set "upstream" in C by hand, then run /router setup again.',
+  })
+  // https on loopback and plain remote http are upstreams.
+  expect(plan({ base: { value: 'https://localhost:9', source: 'user' } })).toMatchObject({ kind: 'proceed', isUpstreamSaved: true })
+  expect(plan({ base: { value: 'http://gw.corp', source: 'user' } })).toMatchObject({ kind: 'proceed', isUpstreamSaved: true })
+})
+
+test('planSetup: a stale backup is overwritten when the base is not a router', () => {
+  expect(plan()).toMatchObject({ kind: 'proceed', isBackupWritten: true })
+  expect(plan({ base: { value: undefined, source: 'none' } })).toMatchObject({ isBackupWritten: true })
+})
+
+test('restoreSettings keeps headers the user added since, and restores an empty original', () => {
+  const backup: Backup = { version: 1, baseUrl: null, source: 'none', customHeaders: 'X-Corp: a', at: 'T' }
+  const changed = restoreSettings({ env: { ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a\nX-New: n\nx-router-token: t' } }, backup)
+  expect(JSON.parse(changed.text).env.ANTHROPIC_CUSTOM_HEADERS).toBe('X-Corp: a\nX-New: n')
+  const added = restoreSettings({ env: { ANTHROPIC_CUSTOM_HEADERS: 'X-New: n\nx-router-token: t' } }, { ...backup, customHeaders: null })
+  expect(JSON.parse(added.text).env.ANTHROPIC_CUSTOM_HEADERS).toBe('X-New: n')
+  const empty = restoreSettings({ env: { ANTHROPIC_CUSTOM_HEADERS: 'x-router-token: t' } }, { ...backup, customHeaders: '' })
+  expect(JSON.parse(empty.text).env.ANTHROPIC_CUSTOM_HEADERS).toBe('')
+  const none = restoreSettings({ env: { ANTHROPIC_CUSTOM_HEADERS: 'x-router-token: t' } }, { ...backup, customHeaders: null })
+  expect(JSON.parse(none.text)).toEqual({})
+})
+
+test('parseBackup accepts only the backup shape', () => {
+  const ok = { version: 1, baseUrl: null, source: 'user', customHeaders: '', at: 'T' }
+  expect(parseBackup(JSON.stringify(ok))).toEqual(ok)
+  expect(parseBackup('null')).toBe(null)
+  expect(parseBackup('[]')).toBe(null)
+  expect(parseBackup('{')).toBe(null)
+  expect(parseBackup(JSON.stringify({ ...ok, source: 'nowhere' }))).toBe(null)
+  expect(parseBackup(JSON.stringify({ ...ok, baseUrl: 5 }))).toBe(null)
+  expect(parseBackup(JSON.stringify({ ...ok, customHeaders: {} }))).toBe(null)
+})
+
+test('setup leaves an unreadable settings.json and every other file alone', async ($, on) => {
+  const w = world(on, { config: null })
+  userSettings(w, { theme: 'dark', env: { ANTHROPIC_BASE_URL: 'https://gw.corp' } })
+  w.unreadable.add(USER_SETTINGS)
+  await start($)
+  const before = snapshot(w)
+  const text = (await run($, 'router', 'setup')).text
+  expect(text).toBe(`Could not read ${USER_SETTINGS}; nothing was changed. Check that no other plugin blocks reading it, then run /router setup again.`)
+  expect(snapshot(w)).toBe(before)
+})
+
+test('uninstall leaves an unreadable settings.json and the backup alone', async ($, on) => {
+  const w = world(on, { config: null })
+  userSettings(w, { theme: 'dark', env: { ANTHROPIC_BASE_URL: 'https://gw.corp' } })
+  await start($)
+  await run($, 'router', 'setup')
+  w.unreadable.add(USER_SETTINGS)
+  const before = snapshot(w)
+  const text = (await run($, 'router', 'uninstall')).text
+  expect(text).toBe(`Could not read ${USER_SETTINGS}; nothing was changed. Check that no other plugin blocks reading it, then run /router uninstall again.`)
+  expect(snapshot(w)).toBe(before)
+})
+
+test('a router on another port is rewired, keeping the upstream and the backup', async ($, on) => {
+  const w = world(on, { config: { version: 1, providers: [], overrides: {}, upstream: 'https://gw.corp' } })
+  userSettings(w, { theme: 'dark', env: { ANTHROPIC_BASE_URL: 'http://localhost:4000/', ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a\nx-router-token: old' } })
+  w.files.set(BACKUP, 'KEEP')
+  await start($)
+  const text = (await run($, 'router', 'setup')).text ?? ''
+  expect(text).toContain(`✓ rewired ANTHROPIC_BASE_URL from http://localhost:4000/ to ${ROUTER}; upstream unchanged (https://gw.corp)`)
+  expect(readJson(w, CONFIG).upstream).toBe('https://gw.corp')
+  expect(w.files.get(BACKUP)).toBe('KEEP')
+  expect(readJson(w, USER_SETTINGS)).toEqual({ theme: 'dark', env: { ANTHROPIC_BASE_URL: ROUTER, ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a\nx-router-token: tok-1' } })
+})
+
+test('a local router with no saved upstream stops and writes nothing', async ($, on) => {
+  const w = world(on, { config: null })
+  userSettings(w, { env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:4000' } })
+  await start($)
+  const before = snapshot(w)
+  const text = (await run($, 'router', 'setup')).text ?? ''
+  expect(text).toContain('already points at a local router (http://127.0.0.1:4000) and no upstream is saved')
+  expect(snapshot(w)).toBe(before)
+})
+
+test('a stale backup (setup undone by hand) is replaced with the current values', async ($, on) => {
+  const w = world(on, { config: null })
+  userSettings(w, { env: { ANTHROPIC_BASE_URL: 'https://gw.new' } })
+  w.files.set(BACKUP, JSON.stringify({ version: 1, baseUrl: 'https://gw.old', source: 'user', customHeaders: null, at: 'old' }))
+  await start($)
+  await run($, 'router', 'setup')
+  expect(readJson(w, BACKUP)).toMatchObject({ baseUrl: 'https://gw.new', source: 'user' })
+})
+
+test('a failed settings write reports what was done and what was not', async ($, on) => {
+  const w = world(on, { config: null })
+  userSettings(w, { theme: 'dark', env: { ANTHROPIC_BASE_URL: 'https://gw.corp' } })
+  w.tool = (sub, args) => (sub === 'write' && args[0] === USER_SETTINGS ? { ok: false, error: 'EACCES' } : undefined)
+  await start($)
+  const before = w.files.get(USER_SETTINGS)
+  const text = (await run($, 'router', 'setup')).text ?? ''
+  expect(text).toContain('✓ upstream = https://gw.corp')
+  expect(text).toContain('✓ original values backed up')
+  expect(text).toContain(`✗ could not write ${USER_SETTINGS}: EACCES — ${USER_SETTINGS} is unchanged; run /router setup again`)
+  expect(w.files.get(USER_SETTINGS)).toBe(before)
+})
+
+test('a symlinked settings.json is written where it lands', async ($, on) => {
+  const w = world(on, { config: null })
+  const real = 'C:/dotfiles/settings.json'
+  userSettings(w, { theme: 'dark' })
+  w.realPaths.set(USER_SETTINGS, real)
+  await start($)
+  await run($, 'router', 'setup')
+  expect(JSON.parse(w.files.get(real)!).theme).toBe('dark')
+  expect(w.files.get(USER_SETTINGS)).toBe(JSON.stringify({ theme: 'dark' }, null, 2))
+})
+
+test('uninstall with a malformed backup changes nothing', async ($, on) => {
+  const w = world(on, { config: null })
+  userSettings(w, { theme: 'dark' })
+  w.files.set(BACKUP, JSON.stringify({ version: 1, baseUrl: 5, source: 'user' }))
+  await start($)
+  const before = snapshot(w)
+  const text = (await run($, 'router', 'uninstall')).text
+  expect(text).toBe(`The setup backup at ${BACKUP} is not valid; nothing was changed. Restore ANTHROPIC_BASE_URL by hand.`)
+  expect(snapshot(w)).toBe(before)
 })

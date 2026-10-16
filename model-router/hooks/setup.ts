@@ -1,5 +1,5 @@
 import type { EngineInterface, SettingsSource } from 'claude-code'
-import { formatErrors } from '../router/lib/schema.mjs'
+import { formatErrors, isLoopbackHost } from '../router/lib/schema.mjs'
 import { routerUrl } from './client'
 import { loadConfig, updateConfig } from './config'
 import { deleteFile, readText, runTool, writeFile } from './host'
@@ -11,6 +11,7 @@ export type BaseUrlSource = SettingsSource | 'os' | 'none'
 export type Backup = { version: 1; baseUrl: string | null; source: BaseUrlSource; customHeaders: string | null; at: string }
 export type Base = { value: string | undefined; source: BaseUrlSource }
 export type Settings = Record<string, unknown>
+export type ReadSettings = Settings | null | 'invalid' | 'unreadable'
 
 const ABOVE_USER = ['policy', 'flag', 'local', 'project'] as const
 const SOURCE_NAMES: Record<BaseUrlSource, string> = {
@@ -48,22 +49,54 @@ export function withTokenHeader(existing: string | undefined, token: string): st
   return [withoutTokenHeader(existing), `x-router-token: ${token}`].filter(Boolean).join('\n')
 }
 
+// A base URL that already points at a local router (this one, or one on another port).
+export function isLoopbackBase(value: string | undefined): boolean {
+  if (!value) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' && isLoopbackHost(url.hostname)
+  } catch {
+    return false
+  }
+}
+
+const sameUrl = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '')
+
+export const unreadableText = (path: string, command: 'setup' | 'uninstall') =>
+  `Could not read ${path}; nothing was changed. Check that no other plugin blocks reading it, then run /router ${command} again.`
+
+function parseSettings(text: string): Settings | 'invalid' {
+  try {
+    const value: unknown = JSON.parse(text)
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Settings) : 'invalid'
+  } catch {
+    return 'invalid'
+  }
+}
+
+// The settings file as the mod may treat it. A file that exists but could not be read, or
+// that the engine shows content for, is never "missing": writing then would wipe every other key.
+export function classifySettings(text: string | null, isThere: boolean, userRead: unknown): ReadSettings {
+  if (text !== null) return parseSettings(text)
+  return isThere || Object.keys((userRead as object | null) ?? {}).length > 0 ? 'unreadable' : null
+}
+
 export type SetupPlan =
   | { kind: 'stop'; text: string }
-  | { kind: 'proceed'; upstream: string }
+  | { kind: 'proceed'; upstream: string; isUpstreamSaved: boolean; isBackupWritten: boolean; rewiredFrom: string | null }
 
-// What setup does before it writes anything: stop with an explanation, or go on with this upstream.
+// What setup does before it writes anything: stop with an explanation, or go on.
 export function planSetup(i: {
   base: Base
   url: string
   upstreamNow: string | undefined
-  settings: Settings | null | 'invalid'
+  settings: ReadSettings
   loadedErrors: string | null
   configPath: string
   settingsPath: string
 }): SetupPlan {
   if (i.loadedErrors) return { kind: 'stop', text: `${i.configPath} is invalid: ${i.loadedErrors}. Fix it, then run /router setup again.` }
-  if (i.base.value === i.url)
+  if (i.base.value !== undefined && sameUrl(i.base.value, i.url))
     return {
       kind: 'stop',
       text: [`Already set up: ANTHROPIC_BASE_URL → ${i.url} (in ${describeSource(i.base.source)}).`, `Upstream: ${i.upstreamNow ?? 'not set'}.`, 'Run /router doctor to check everything.'].join('\n'),
@@ -79,12 +112,35 @@ export function planSetup(i: {
         'Then restart Claude Code and run /router doctor.',
       ].join('\n'),
     }
+  if (i.settings === 'unreadable') return { kind: 'stop', text: unreadableText(i.settingsPath, 'setup') }
   if (i.settings === 'invalid') return { kind: 'stop', text: `${i.settingsPath} is not a JSON object; fix it, then run /router setup again.` }
-  return { kind: 'proceed', upstream: (i.base.value ?? 'https://api.anthropic.com').replace(/\/+$/, '') }
+  if (isLoopbackBase(i.base.value)) {
+    // A router already (another port, localhost, a trailing slash): never its own upstream.
+    if (!i.upstreamNow)
+      return { kind: 'stop', text: `ANTHROPIC_BASE_URL already points at a local router (${i.base.value}) and no upstream is saved; set "upstream" in ${i.configPath} by hand, then run /router setup again.` }
+    return { kind: 'proceed', upstream: i.upstreamNow, isUpstreamSaved: false, isBackupWritten: false, rewiredFrom: i.base.value! }
+  }
+  // Any backup that exists is stale here: an earlier setup was undone by hand. Overwrite it.
+  return { kind: 'proceed', upstream: (i.base.value ?? 'https://api.anthropic.com').replace(/\/+$/, ''), isUpstreamSaved: true, isBackupWritten: true, rewiredFrom: null }
 }
 
 export function backupOf(base: Base, settings: Settings | null, at: string): Backup {
   return { version: 1, baseUrl: base.value ?? null, source: base.source, customHeaders: envOf(settings).ANTHROPIC_CUSTOM_HEADERS ?? null, at }
+}
+
+const SOURCES: readonly string[] = ['policy', 'flag', 'local', 'project', 'user', 'os', 'none']
+const isStringOrNull = (v: unknown) => v === null || typeof v === 'string'
+
+export function parseBackup(text: string): Backup | null {
+  try {
+    const v = JSON.parse(text) as Record<string, unknown> | null
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) return null
+    if (typeof v.source !== 'string' || !SOURCES.includes(v.source)) return null
+    if (!isStringOrNull(v.baseUrl) || !isStringOrNull(v.customHeaders)) return null
+    return v as unknown as Backup
+  } catch {
+    return null
+  }
 }
 
 // The settings file text after setup: every other key and env var kept.
@@ -95,26 +151,20 @@ export function mergeSettings(settings: Settings | null, url: string, token: str
 }
 
 // The settings file text after uninstall, and the URL it restored (null: none left there).
+// The original headers come back only if nothing else changed them; headers added since stay.
 export function restoreSettings(settings: Settings | null, backup: Backup): { text: string; restoredUrl: string | null } {
   const env: Record<string, string> = { ...envOf(settings) }
   const restoredUrl = backup.source === 'user' && backup.baseUrl ? backup.baseUrl : null
   if (restoredUrl) env.ANTHROPIC_BASE_URL = restoredUrl
   else delete env.ANTHROPIC_BASE_URL
-  if (backup.customHeaders) env.ANTHROPIC_CUSTOM_HEADERS = backup.customHeaders
+  const kept = withoutTokenHeader(env.ANTHROPIC_CUSTOM_HEADERS)
+  const isUnchanged = (kept ?? '') === (withoutTokenHeader(backup.customHeaders ?? undefined) ?? '')
+  const headers = isUnchanged ? backup.customHeaders : (kept ?? null)
+  if (headers !== null) env.ANTHROPIC_CUSTOM_HEADERS = headers
   else delete env.ANTHROPIC_CUSTOM_HEADERS
   const next: Settings = { ...(settings ?? {}), env }
   if (Object.keys(env).length === 0) delete next.env
   return { text: `${JSON.stringify(next, null, 2)}\n`, restoredUrl }
-}
-
-function parseSettings(text: string | null): Settings | null | 'invalid' {
-  if (text === null) return null
-  try {
-    const value: unknown = JSON.parse(text)
-    return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Settings) : 'invalid'
-  } catch {
-    return 'invalid'
-  }
 }
 
 // ---- thin shell ------------------------------------------------------------
@@ -125,13 +175,34 @@ export async function findBaseUrl($: EngineInterface): Promise<Base> {
   return pickBaseUrl(bySource, await $.env.get('ANTHROPIC_BASE_URL'))
 }
 
+async function readUserSettings($: EngineInterface, path: string): Promise<ReadSettings> {
+  const text = await readText($, path)
+  if (text !== null) return classifySettings(text, true, null)
+  let isThere = true
+  try { isThere = await $.fs.exists(path) } catch { /* unknown: treat as there and change nothing */ }
+  return classifySettings(null, isThere, await $.settings.read({ source: 'user' }))
+}
+
+// A symlinked settings.json stays a link: write where it lands.
+async function writeTarget($: EngineInterface, path: string): Promise<string> {
+  try { return (await $.fs.stat(path, { resolve: true })).realPath ?? path } catch { return path }
+}
+
+// null when the write went through; else the failure line.
+async function tryWrite(path: string, unchanged: string, command: 'setup' | 'uninstall', verb: 'write' | 'delete', act: () => Promise<void>): Promise<string | null> {
+  try { await act(); return null } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return `✗ ${msg.startsWith(`could not ${verb}`) ? msg : `could not ${verb} ${path}: ${msg}`} — ${unchanged}; run /router ${command} again`
+  }
+}
+
 export async function runSetup($: EngineInterface, m: Monitor): Promise<string> {
   const paths = await getPaths($)
   const loaded = await loadConfig($, paths)
   const port = loaded.config.port
   const url = routerUrl(port)
   const base = await findBaseUrl($)
-  const settings = parseSettings(await readText($, paths.userSettings))
+  const settings = await readUserSettings($, paths.userSettings)
 
   const plan = planSetup({
     base,
@@ -143,23 +214,36 @@ export async function runSetup($: EngineInterface, m: Monitor): Promise<string> 
     settingsPath: paths.userSettings,
   })
   if (plan.kind === 'stop') return plan.text
-  const safe = settings === 'invalid' ? null : settings
+  const safe = settings === 'invalid' || settings === 'unreadable' ? null : settings
+  const lines: string[] = []
+  const fail = (line: string) => [...lines, line].join('\n')
 
-  const saved = await updateConfig($, paths, raw => { raw.version = 1; raw.upstream = plan.upstream })
-  if (!saved.ok) return `Could not save the upstream: ${saved.message}`
-  const lines = [`✓ upstream = ${plan.upstream} (from ${describeSource(base.source)})`]
+  if (plan.isUpstreamSaved) {
+    const err = await tryWrite(paths.config, 'nothing was changed', 'setup', 'write', async () => {
+      const saved = await updateConfig($, paths, raw => { raw.version = 1; raw.upstream = plan.upstream })
+      if (!saved.ok) throw new Error(`could not write ${paths.config}: ${saved.message}`)
+    })
+    if (err) return fail(err)
+    lines.push(`✓ upstream = ${plan.upstream} (from ${describeSource(base.source)})`)
+  } else {
+    lines.push(`✓ rewired ANTHROPIC_BASE_URL from ${plan.rewiredFrom} to ${url}; upstream unchanged (${plan.upstream})`)
+  }
 
   const tokenOut = await runTool($, ['ensure-token', paths.token])
-  if (tokenOut.ok !== true || typeof tokenOut.token !== 'string') return [...lines, `✗ could not create the token: ${tokenOut.error ?? 'unknown error'}`].join('\n')
+  if (tokenOut.ok !== true || typeof tokenOut.token !== 'string') return fail(`✗ could not create the token: ${tokenOut.error ?? 'unknown error'}`)
   if (typeof tokenOut.warning === 'string') lines.push(`⚠ ${tokenOut.warning}`)
 
-  if ((await readText($, paths.backup)) === null) {
+  if (plan.isBackupWritten) {
     const backup = backupOf(base, safe, new Date(await $.clock.now()).toISOString())
-    await writeFile($, paths.backup, `${JSON.stringify(backup, null, 2)}\n`)
+    const err = await tryWrite(paths.backup, `${paths.userSettings} is unchanged`, 'setup', 'write', () => writeFile($, paths.backup, `${JSON.stringify(backup, null, 2)}\n`))
+    if (err) return fail(err)
     lines.push(`✓ original values backed up to ${paths.backup}`)
   }
 
-  await writeFile($, paths.userSettings, mergeSettings(safe, url, tokenOut.token, await $.env.get('ANTHROPIC_CUSTOM_HEADERS')))
+  const target = await writeTarget($, paths.userSettings)
+  const text = mergeSettings(safe, url, tokenOut.token, await $.env.get('ANTHROPIC_CUSTOM_HEADERS'))
+  const err = await tryWrite(target, `${paths.userSettings} is unchanged`, 'setup', 'write', () => writeFile($, target, text))
+  if (err) return fail(err)
   lines.push(`✓ ${paths.userSettings}: env.ANTHROPIC_BASE_URL = ${url}; x-router-token added to env.ANTHROPIC_CUSTOM_HEADERS`)
 
   const ensured = await ensureRouter($, port)
@@ -168,7 +252,7 @@ export async function runSetup($: EngineInterface, m: Monitor): Promise<string> 
 
   lines.push(
     '',
-    `Undo by hand: in ${paths.userSettings}, ${base.source === 'user' ? `set env.ANTHROPIC_BASE_URL back to ${base.value}` : 'remove env.ANTHROPIC_BASE_URL'} and remove the x-router-token line from env.ANTHROPIC_CUSTOM_HEADERS. Or run /router uninstall.`,
+    `Undo by hand: in ${paths.userSettings}, ${base.source === 'user' && !plan.rewiredFrom ? `set env.ANTHROPIC_BASE_URL back to ${base.value}` : 'remove env.ANTHROPIC_BASE_URL'} and remove the x-router-token line from env.ANTHROPIC_CUSTOM_HEADERS. Or run /router uninstall.`,
     'Restart Claude Code to activate. Then run /router doctor to check upstream auth.',
   )
   return lines.join('\n')
@@ -178,14 +262,18 @@ export async function runUninstall($: EngineInterface): Promise<string> {
   const paths = await getPaths($)
   const text = await readText($, paths.backup)
   if (text === null) return 'Nothing to undo: no setup backup found (/router setup was not run, or was undone).'
-  let backup: Backup
-  try { backup = JSON.parse(text) as Backup } catch { return `${paths.backup} is not valid JSON; restore the settings by hand, then delete it.` }
-  const settings = parseSettings(await readText($, paths.userSettings))
+  const backup = parseBackup(text)
+  if (backup === null) return `The setup backup at ${paths.backup} is not valid; nothing was changed. Restore ANTHROPIC_BASE_URL by hand.`
+  const settings = await readUserSettings($, paths.userSettings)
+  if (settings === 'unreadable') return unreadableText(paths.userSettings, 'uninstall')
   if (settings === 'invalid') return `${paths.userSettings} is not a JSON object; fix it, then run /router uninstall again.`
 
   const restored = restoreSettings(settings, backup)
-  await writeFile($, paths.userSettings, restored.text)
-  await deleteFile($, paths.backup)
+  const target = await writeTarget($, paths.userSettings)
+  const err = await tryWrite(target, `${paths.userSettings} and the backup are unchanged`, 'uninstall', 'write', () => writeFile($, target, restored.text))
+  if (err) return err
+  const delErr = await tryWrite(paths.backup, `${paths.userSettings} is restored, the backup is still there`, 'uninstall', 'delete', () => deleteFile($, paths.backup))
+  if (delErr) return delErr
   return [
     `Restored ${paths.userSettings}: ANTHROPIC_BASE_URL is ${restored.restoredUrl ?? 'no longer set there'}, and the x-router-token header is gone.`,
     'Restart Claude Code. The router keeps serving other sessions and exits after 30 idle minutes.',
