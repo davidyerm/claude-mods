@@ -43,7 +43,8 @@ export function send({ url, method = 'POST', headers, body, signal, connectTimeo
     })
     req.on('finish', () => {
       if (settled) return
-      firstByteTimer = setTimeout(() => req.destroy(timeoutError('first byte timeout', 'ETIMEDOUT_FIRST_BYTE')), firstByteTimeoutMs)
+      if (Number.isFinite(firstByteTimeoutMs))
+        firstByteTimer = setTimeout(() => req.destroy(timeoutError('first byte timeout', 'ETIMEDOUT_FIRST_BYTE')), firstByteTimeoutMs)
     })
     req.on('response', res => done({ ok: true, res }))
     req.on('error', error => done({ ok: false, kind: classify(error), error }))
