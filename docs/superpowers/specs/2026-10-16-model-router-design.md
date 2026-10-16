@@ -72,7 +72,7 @@ They communicate **only** through the config file (written by the mod, read by t
 | Path | Writer | Contents | Persistence |
 |---|---|---|---|
 | `~/.claude/model-router.json` | User / mod (never the router) | Settings (§5.2) | Permanent |
-| `~/.claude/model-router/learned.json` | Router only | Learned compatibility limits | Permanent, 30-day expiry per entry |
+| `~/.claude/model-router/limits-cache.json` | Router only | Learned compatibility limits | Permanent, 30-day expiry per entry |
 | `~/.claude/model-router/token` | Mod (setup) | Local access token (D18), user-readable only | Permanent |
 | `~/.claude/model-router/setup-backup.json` | Mod (setup) | Original `ANTHROPIC_BASE_URL`, its source, and the original `ANTHROPIC_CUSTOM_HEADERS` | Until uninstall |
 | `~/.claude/model-router/events.jsonl` | Router | Event log (rotated, 1 MB × 3) | Short |
@@ -112,7 +112,37 @@ Circuit-breaker state lives only in router memory. The session main pick lives i
   - Families limited to `haiku|sonnet|opus|fable`.
   - Exactly one of `apiKeyEnv` / `apiKey`.
   - `baseUrl` is https, or http on loopback.
-- **Precedence of limits:** config `maxOutputTokens` > `learned.json` (unexpired) > none.
+- **Precedence of limits:** config `maxOutputTokens` > `limits-cache.json` (unexpired) > none.
+
+### 5.3 `limits-cache.json` rules
+
+- **Scope:**
+  - Routed models only.
+  - Holds **only `maxOutputTokens`**. Context windows are model-limits' concern (§11).
+  - Keyed by `Provider/model-id`.
+- **Shape:**
+  ```json
+  {
+    "_comment": "auto-managed cache; put permanent limits in model-router.json",
+    "version": 1,
+    "entries": {
+      "DeepSeek/deepseek-chat": {
+        "maxOutputTokens": 8192,
+        "learnedAt": "2026-10-15T14:02:11Z",
+        "source": "400: max_tokens must be <= 8192"
+      }
+    }
+  }
+  ```
+- **It's a cache, not configuration.** Permanent limits belong in `model-router.json`, which always wins. Doctor's "copy to config" moves entries there.
+- **Manual edits are honored and never clobbered:**
+  - The router **watches** the file (debounced 300 ms) and reloads on change.
+  - Before every write it **re-reads and merges**, changing only the entry it just learned.
+  - Deleting the file equals `/router forget all`.
+- **A broken file never breaks routing:**
+  - On invalid JSON, keep the last good copy in memory, emit `config-error`, and **don't write**: the user may be mid-edit.
+  - On the next learn, rename the broken file to `limits-cache.json.bad` and write a fresh one.
+- **Expiry:** entries older than 30 days are ignored, and dropped on the next write.
 
 ## 6. Router
 
@@ -158,10 +188,11 @@ A request is never routed twice: fallback goes straight to upstream.
 
 - Responses (SSE or JSON) are **streamed through unbuffered**.
 - **Before the first response byte:** on a connection error, timeout (connect 10 s, first byte 120 s), 5xx, 429 or 4xx:
-  - **400 matching a `max_tokens` limit message** → parse the limit (fallback value 8192), save it to `learned.json`, retry **once on the same provider** with the clamped value, and emit `learned` event.
+  - **400 matching a `max_tokens` limit message** → parse the limit (fallback value 8192), save it to `limits-cache.json`, retry **once on the same provider** with the clamped value, and emit `learned` event.
   - **Otherwise** → retry **once on upstream** with the original Claude model ID and the request's **original inbound headers**, kept in memory for this request only. Emit a `fallback` event with status and the provider's error text (≤200 chars). Count a breaker failure.
 - **After the first byte:** errors pass through unchanged (D8).
 - **Pass-through errors are only observed:** emit an `upstream-error` event (for model-limits) and change nothing.
+- **Routed-provider errors** (every failure, the context-length ones included) also emit a `provider-error` event with status and error text. The router doesn't learn context windows; model-limits can learn from these events.
 
 ### 6.5 Circuit breaker
 
@@ -172,7 +203,7 @@ A request is never routed twice: fallback goes straight to upstream.
 
 - An event is `{ seq, t, kind, session?, provider?, model?, status?, text? }`.
 - `session` comes from the inbound `x-claude-code-session-id`.
-- Kinds: `fallback`, `learned`, `breaker-open`, `breaker-close`, `upstream-error`, `config-error`, `config-reloaded`.
+- Kinds: `fallback`, `learned`, `breaker-open`, `breaker-close`, `upstream-error`, `provider-error`, `config-error`, `config-reloaded`.
 - Served at `GET /_router/events?after=<seq>`, which returns the in-memory ring of the last 500 events, and also appended to `events.jsonl`.
 
 ### 6.7 Config, keys, environment
@@ -413,7 +444,11 @@ Each one, if it fails, changes the design at the noted point.
 ## 11. Related: model-limits (separate plugin, later)
 
 - **Owns:** per-model `contextWindow` and `maxOutputTokens` *policy* for **all** models; learning from errors; compaction via `$.session.usage()` + `$.session.compact()`.
-- **With the router present:** registers output-cap rules at `POST /_router/policy` (`policyApi: 1`). The router applies them, including to pass-through traffic, only while rules are registered. It learns from `upstream-error` events.
+- **With the router present:** registers output-cap rules at `POST /_router/policy` (`policyApi: 1`). The router applies them, including to pass-through traffic, only while rules are registered. It learns from `upstream-error` and `provider-error` events.
+- **No overlap with the router's cache:**
+  - Separate files, one writer each: `~/.claude/model-router/limits-cache.json` (router) and `~/.claude/model-limits/limits-cache.json` (model-limits).
+  - The router's file covers routed models and holds only compatibility `maxOutputTokens`. model-limits covers all models, with `contextWindow` plus `maxOutputTokens` policy.
+  - When both cap a routed request: **`max_tokens = min(requested, router limit, policy cap)`**. Both are upper bounds, so no tiebreak is needed.
 - **Without the router:** context compaction only. It tells users about the router when a rule needs it (inline on rule creation, one toast per session if rules are inactive, `/limits status`).
 - **Open question for the user:** is the org's need for Claude models context, output, or both?
 - Gets its own brainstorm, spec and plan.
