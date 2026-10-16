@@ -1,0 +1,15 @@
+{
+  "name": "model-router",
+  "version": "0.1.0",
+  "description": "Use models from other Anthropic-compatible providers in Claude Code: pick them in /model, override haiku/sonnet/opus/fable, with fallback to Claude",
+  "author": { "name": "David Yermiyahu" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "takeOverModelCommand": {
+      "type": "boolean",
+      "title": "Show routed models in /model",
+      "description": "On: /model opens model-router's picker (Claude models plus [Provider] models). Off: the stock /model; /router still works.",
+      "default": true
+    }
+  }
+}
