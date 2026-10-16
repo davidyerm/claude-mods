@@ -64,3 +64,11 @@ test('shape guards return null for odd replies instead of throwing', () => {
   expect(keysOf({ ok: true, status: 200, json: { keys: { A: 'fp' } } })).toEqual({ A: 'fp' })
   expect(forgottenOf({ ok: true, status: 200, json: { forgotten: 3 } })).toBe(3)
 })
+
+test('a newer running router is reused; an older one is replaced; force always replaces (final fix M1)', () => {
+  const newer = routerStatus({ version: '99.0.0' })
+  expect(decideEnsure({ kind: 'ours', status: newer }, 4141, VERSION, false)).toEqual({ action: 'reuse', status: newer })
+  expect(decideEnsure({ kind: 'ours', status: newer }, 4141, VERSION, true)).toEqual({ action: 'launch', args: ['start', '--force'] })
+  const older = routerStatus({ version: '0.0.1' })
+  expect(decideEnsure({ kind: 'ours', status: older }, 4141, VERSION, false)).toEqual({ action: 'launch', args: ['start'] })
+})

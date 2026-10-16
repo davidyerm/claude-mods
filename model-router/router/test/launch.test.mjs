@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { compareVersions, isReusable } from '../version.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -109,4 +110,17 @@ test('start launches a detached router, reuses it, and refuses a foreign port', 
     assert.equal(r.code, 1)
     assert.match(r.json.error, /used by another program/)
   } finally { foreign.close() }
+})
+
+test('versions compare as semver numbers; start reuses a same or newer router, replaces an older one', () => {
+  assert.equal(compareVersions('0.1.0', '0.1.0'), 0)
+  assert.equal(compareVersions('0.10.0', '0.9.9'), 1)
+  assert.equal(compareVersions('0.1.0', '0.1.1'), -1)
+  assert.equal(compareVersions('1.0.0', '0.99.99'), 1)
+  assert.equal(compareVersions('0.1', '0.1.0'), 0)
+  assert.equal(compareVersions(undefined, '0.1.0'), -1)
+  assert.equal(isReusable('0.2.0', '0.1.0', false), true)
+  assert.equal(isReusable('0.1.0', '0.1.0', false), true)
+  assert.equal(isReusable('0.0.9', '0.1.0', false), false)
+  assert.equal(isReusable('0.2.0', '0.1.0', true), false)
 })

@@ -11,7 +11,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { VERSION } from './version.mjs'
+import { VERSION, isReusable } from './version.mjs'
 import { DEFAULT_STRIP } from './lib/schema.mjs'
 import { routerHome, routerPaths, readConfigFile, startPortOf } from './lib/config.mjs'
 import { getStatus, postShutdown, waitFor } from './lib/client.mjs'
@@ -35,7 +35,7 @@ async function start({ force = false } = {}) {
   const cfg = readConfigFile(paths.config)
   const port = startPortOf(cfg)
   const before = await getStatus(port)
-  if (before.kind === 'ours' && before.status.version === VERSION && !force) return { ok: true, started: false, pid: before.status.pid, version: VERSION }
+  if (before.kind === 'ours' && isReusable(before.status.version, VERSION, force)) return { ok: true, started: false, pid: before.status.pid, version: before.status.version }
   if (before.kind === 'foreign') return { ok: false, error: `port ${port} is used by another program; set "port" in ${paths.config}` }
   if (before.kind === 'ours') {
     const token = readToken(paths.token)

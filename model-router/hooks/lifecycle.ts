@@ -1,5 +1,5 @@
 import type { EngineInterface } from 'claude-code'
-import { VERSION } from '../router/version.mjs'
+import { isReusable, VERSION } from '../router/version.mjs'
 import { probeRouter } from './client'
 import type { Probe, RouterStatus } from './client'
 import { runTool } from './host'
@@ -13,7 +13,7 @@ export type EnsureStep =
 
 // Pure: what to do about the router given its first probe.
 export function decideEnsure(before: Probe, port: number, version: string, force: boolean): EnsureStep {
-  if (!force && before.kind === 'ours' && before.status.version === version) return { action: 'reuse', status: before.status }
+  if (before.kind === 'ours' && isReusable(before.status.version, version, force)) return { action: 'reuse', status: before.status }
   if (before.kind === 'foreign') return { action: 'foreign', reason: `port ${port} is used by another program; set "port" in model-router.json` }
   return { action: 'launch', args: force ? ['start', '--force'] : ['start'] }
 }
@@ -26,7 +26,7 @@ export function finishEnsure(out: ToolOut, after: Probe): Ensure {
 }
 
 // Status, then (when needed) the launcher, which spawns detached, drains an older
-// version and does all the waiting: a hook's own budget is 10 s and sleeps count.
+// version (a same or newer one is reused) and does all the waiting: a hook's own budget is 10 s and sleeps count.
 export async function ensureRouter($: EngineInterface, port: number, { force = false }: { force?: boolean } = {}): Promise<Ensure> {
   const step = decideEnsure(await probeRouter($, port), port, VERSION, force)
   if (step.action === 'reuse') return { ok: true, status: step.status, started: false }
