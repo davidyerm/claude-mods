@@ -37,12 +37,6 @@ test('/router answers usage for a wrong form', async ($, on) => {
   expect((await run($, 'router', 'claude now')).text).toBe('Usage: /router claude')
 })
 
-test('doctor, whose module lands later, answers "not available in this build yet"', async ($, on) => {
-  world(on)
-  await start($)
-  expect((await run($, 'router', 'doctor')).text).toBe('/router doctor is not available in this build yet')
-})
-
 test('/router <name> and /router claude set and clear the pick', async ($, on) => {
   const w = world(on)
   await start($)

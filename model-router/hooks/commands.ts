@@ -5,6 +5,7 @@ import { openWizard } from './add'
 import { postForget } from './client'
 import { ambiguousText, display, findModel, loadConfig, modelList, updateConfig } from './config'
 import type { Match } from './config'
+import { runDoctor } from './doctor'
 import { readText } from './host'
 import { ensureRouter } from './lifecycle'
 import { refresh } from './monitor'
@@ -61,9 +62,6 @@ function notOne(name: string, match: Match, list: string): string {
   return match.kind === 'ambiguous' ? ambiguousText(name, match.refs) : `Unknown model "${name}". Models: ${list}`
 }
 
-// Kinds whose modules land in later tasks (doctor 28).
-const notYet = (kind: string): CommandRunResult => ({ text: `/router ${kind} is not available in this build yet` })
-
 export async function runRouterCommand($: EngineInterface, m: Monitor, cmd: RouterCommand): Promise<CommandRunResult> {
   const paths = await getPaths($)
   const { config } = await loadConfig($, paths)
@@ -73,8 +71,7 @@ export async function runRouterCommand($: EngineInterface, m: Monitor, cmd: Rout
     case 'add': return openWizard($)
     case 'setup': return { text: await runSetup($, m) }
     case 'uninstall': return { text: await runUninstall($) }
-    case 'doctor':
-      return notYet(cmd.kind)
+    case 'doctor': return { text: await runDoctor($, m, { isOffline: cmd.isOffline }) }
     case 'claude':
       await clearPick($)
       await refresh($, m)
