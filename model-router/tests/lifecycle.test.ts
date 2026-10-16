@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { probeOf } from '../hooks/client'
+import { eventsOf, forgottenOf, keysOf, limitsOf, probeOf, replyOf } from '../hooks/client'
 import { decideEnsure, finishEnsure } from '../hooks/lifecycle'
 import { VERSION } from '../router/version.mjs'
 import { routerStatus } from './world'
@@ -39,4 +39,28 @@ test('a foreign port is reported without launching; a failed launch reports the 
 test('force asks the launcher to replace the running router', () => {
   const status = routerStatus()
   expect(decideEnsure({ kind: 'ours', status }, 4141, VERSION, true)).toEqual({ action: 'launch', args: ['start', '--force'] })
+})
+
+test('replyOf parses JSON and falls back to null for other bodies', () => {
+  expect(replyOf({ status: 200, text: '{"a":1}' })).toEqual({ ok: true, status: 200, json: { a: 1 } })
+  expect(replyOf({ status: 502, text: '<html>bad gateway</html>' })).toEqual({ ok: true, status: 502, json: null })
+  expect(replyOf({ status: 200, text: '' })).toEqual({ ok: true, status: 200, json: null })
+})
+
+test('shape guards return null for odd replies instead of throwing', () => {
+  const odd = [null, 'x', [], {}, { keys: 3 }]
+  for (const json of odd) {
+    const r = { ok: true as const, status: 200, json }
+    expect(eventsOf(r)).toBe(null)
+    expect(limitsOf(r)).toBe(null)
+    expect(keysOf(r)).toBe(null)
+    expect(forgottenOf(r)).toBe(null)
+  }
+  const bad = { ok: true as const, status: 500, json: { events: [], lastSeq: 0, keys: {}, forgotten: 1, learned: {} } }
+  expect(eventsOf(bad)).toBe(null)
+  expect(keysOf({ ok: false, reason: 'x' })).toBe(null)
+  expect(eventsOf({ ok: true, status: 200, json: { events: [{ seq: 2 }], lastSeq: 2 } })).toEqual({ events: [{ seq: 2 }], lastSeq: 2 })
+  expect(limitsOf({ ok: true, status: 200, json: { learned: {}, policy: null } })).toEqual({ learned: {}, policy: null })
+  expect(keysOf({ ok: true, status: 200, json: { keys: { A: 'fp' } } })).toEqual({ A: 'fp' })
+  expect(forgottenOf({ ok: true, status: 200, json: { forgotten: 3 } })).toBe(3)
 })
