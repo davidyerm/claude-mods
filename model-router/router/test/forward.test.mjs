@@ -53,3 +53,16 @@ test('errorMessage reads Anthropic JSON and tames HTML', () => {
   assert.equal(errorMessage(`<html><body><h1>502   Bad Gateway</h1>${'<p>x</p>'.repeat(200)}</body></html>`).slice(0, 15), '502 Bad Gateway')
   assert.ok(errorMessage('<p>x</p>'.repeat(500)).length <= 200)
 })
+
+test('send never rejects on a bad URL', async () => {
+  const r = await send({ url: 'not a url', headers: {}, body: '{}' })
+  assert.deepEqual([r.ok, r.kind], [false, 'connect'])
+})
+
+test('send never rejects on an invalid header value', async () => {
+  const fake = await startFake()
+  try {
+    const r = await send({ url: `${fake.url}/x`, headers: { 'x-api-key': 'sk\n' }, body: '{}' })
+    assert.deepEqual([r.ok, r.kind], [false, 'connect'])
+  } finally { await fake.close() }
+})

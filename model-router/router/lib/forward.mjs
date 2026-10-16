@@ -21,6 +21,7 @@ const timeoutError = (message, code) => Object.assign(new Error(message), { code
 // Resolves once response headers arrive (the first byte) or the request fails; never rejects.
 export function send({ url, method = 'POST', headers, body, signal, connectTimeoutMs = CONNECT_TIMEOUT_MS, firstByteTimeoutMs = FIRST_BYTE_TIMEOUT_MS }) {
   return new Promise(resolve => {
+    try {
     const target = new URL(url)
     const lib = target.protocol === 'https:' ? https : http
     const outHeaders = { ...headers }
@@ -41,11 +42,15 @@ export function send({ url, method = 'POST', headers, body, signal, connectTimeo
       else socket.once(target.protocol === 'https:' ? 'secureConnect' : 'connect', connected)
     })
     req.on('finish', () => {
+      if (settled) return
       firstByteTimer = setTimeout(() => req.destroy(timeoutError('first byte timeout', 'ETIMEDOUT_FIRST_BYTE')), firstByteTimeoutMs)
     })
     req.on('response', res => done({ ok: true, res }))
     req.on('error', error => done({ ok: false, kind: classify(error), error }))
     req.end(body)
+    } catch (error) {
+      resolve({ ok: false, kind: 'connect', error })
+    }
   })
 }
 

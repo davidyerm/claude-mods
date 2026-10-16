@@ -40,7 +40,7 @@ export async function startFake({ tls, handler = defaultHandler } = {}) {
     req.on('end', () => {
       const body = Buffer.concat(chunks).toString('utf8')
       requests.push({ method: req.method, url: req.url, headers: req.headers, body })
-      Promise.resolve(current(req, res, body)).catch(() => res.destroy())
+      Promise.resolve().then(() => current(req, res, body)).catch(() => res.destroy())
     })
   }
   const server = tls ? https.createServer(tls, onRequest) : http.createServer(onRequest)
