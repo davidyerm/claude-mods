@@ -12,7 +12,24 @@ export const pickAtom = atom({ plugin: 'model-router', key: 'pick' } as const, n
 export const seenModelAtom = atom({ plugin: 'model-router', key: 'seenModel' } as const, null as string | null)
 export const startedAtom = atom({ plugin: 'model-router', key: 'isStarted' } as const, false)
 
-export const getPick = ($: EngineInterface) => read($, pickAtom)
+// A function declaration, not an arrow: the engine follows $ across files only into declarations.
+export async function getPick($: EngineInterface): Promise<string | null> {
+  return read($, pickAtom)
+}
+
+// The engine lets read/update name only an atom declared in the same file, so the
+// other modules reach these atoms through these declarations.
+export async function getSeenModel($: EngineInterface): Promise<string | null> {
+  return read($, seenModelAtom)
+}
+
+export async function isStarted($: EngineInterface): Promise<boolean> {
+  return read($, startedAtom)
+}
+
+export async function markStarted($: EngineInterface): Promise<void> {
+  await update($, startedAtom, () => true)
+}
 
 export async function setPick($: EngineInterface, ref: string): Promise<void> {
   const model = await $.session.model()

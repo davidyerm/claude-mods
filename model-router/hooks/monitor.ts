@@ -1,4 +1,3 @@
-import { read } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 import { allRefs } from '../router/lib/schema.mjs'
 import { getEvents, probeRouter } from './client'
@@ -7,7 +6,7 @@ import { display, loadConfig } from './config'
 import { ensureRouter } from './lifecycle'
 import type { Ensure } from './lifecycle'
 import { getPaths } from './paths'
-import { clearPick, getPick, seenModelAtom } from './pick'
+import { clearPick, getPick, getSeenModel } from './pick'
 import { isForSession, statusLine, toastFor } from './status'
 
 export type Monitor = { status: RouterStatus | null; lastSeq: number; isDown: boolean; port: number }
@@ -67,7 +66,7 @@ export async function tick($: EngineInterface, m: Monitor): Promise<void> {
   const pick = await getPick($)
   if (pick !== null) {
     const { config } = await loadConfig($, await getPaths($))
-    const check = checkPick({ pick, refs: allRefs(config), seen: await read($, seenModelAtom), model: await $.session.model() })
+    const check = checkPick({ pick, refs: allRefs(config), seen: await getSeenModel($), model: await $.session.model() })
     if (check !== 'keep') {
       await clearPick($)
       $.ui.toast(check.toast)

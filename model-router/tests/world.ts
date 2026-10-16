@@ -127,8 +127,9 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
   if (isRouterUp) up(w)
   mock.env(on, { USERPROFILE: HOME, ...env })
 
-  on('fs.read', ($, e) => (w.files.has(e.path) ? { value: w.files.get(e.path)! } : { deny: `ENOENT: ${e.path}` }))
-  on('fs.exists', ($, e) => ({ value: w.files.has(e.path) }))
+  // The engine hands fs hooks native paths (backslashes on Windows); w.files keys use /.
+  on('fs.read', ($, e) => (w.files.has(slash(e.path)) ? { value: w.files.get(slash(e.path))! } : { deny: `ENOENT: ${e.path}` }))
+  on('fs.exists', ($, e) => ({ value: w.files.has(slash(e.path)) }))
   on('settings.read', ($, e) => ({ value: (e.source ? w.settings[e.source] : Object.assign({}, ...Object.values(w.settings))) ?? {} }))
   on('http.fetch', ($, e) => {
     const url = new URL(e.url)
@@ -162,12 +163,15 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
     w.commands.push({ command: e.command, args: e.args, origin: e.origin.kind })
     return { text: `built-in /${e.command} ${e.args}`.trim() }
   })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('turn.step', async function* ($, e) {
     w.stepModels.push(e.model)
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null }
   })
   return w
 }
+
+const slash = (path: string) => path.replace(/\\/g, '/')
 
 function builtinTool(w: World, sub: string, args: readonly string[], stdin: string | undefined): Record<string, unknown> {
   switch (sub) {
@@ -194,3 +198,12 @@ export const run = ($: Engine, command: string, args = '') =>
 export const start = ($: Engine) => $.session.start({ cwd: 'C:/work', surface: 'terminal', isInteractive: true })
 
 export const readJson = (w: World, path: string): any => JSON.parse(w.files.get(path) ?? 'null')
+
+// One main-loop (or, with agentId, subagent) model request. The stream is read to
+// its end: the kit runs the chain only as the stream is read, so `.result` alone
+// settles without reaching the hooks beneath.
+export async function step($: Engine, patch: { model?: string; agentId?: string } = {}) {
+  const stream = $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1, ...patch })
+  for await (const _ of stream) { /* drain */ }
+  return stream.result
+}
