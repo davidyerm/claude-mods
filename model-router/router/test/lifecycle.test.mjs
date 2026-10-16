@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import { makeHome, startRouter, request, spawnCli, waitFor } from './helpers.mjs'
 import { startFake, jsonReply, sseReply, closedPort } from './fakes.mjs'
-import { getStatus } from '../lib/client.mjs'
+import { getStatus, requestJson } from '../lib/client.mjs'
 import { createRouter } from '../lib/server.mjs'
 
 const TOKEN = { 'x-router-token': 'test-token' }
@@ -116,4 +116,19 @@ test('a non-numeric MODEL_ROUTER_IDLE_MS falls back to the default', async () =>
     await new Promise(r => setTimeout(r, 300))
     assert.equal((await getStatus(port)).kind, 'ours')
   } finally { await router.stop({ drain: false }) }
+})
+
+test('requestJson resolves ok:false when a response is cut off after its headers', async () => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json', 'content-length': '1000' })
+    res.write('{"partial":')
+    setTimeout(() => res.socket.destroy(), 50)
+  })
+  await new Promise(r => server.listen(0, '127.0.0.1', r))
+  try {
+    const started = Date.now()
+    const r = await requestJson(server.address().port, '/x')
+    assert.equal(r.ok, false)
+    assert.ok(Date.now() - started < 2000)
+  } finally { server.closeAllConnections?.(); server.close() }
 })

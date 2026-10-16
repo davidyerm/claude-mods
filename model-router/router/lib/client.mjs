@@ -2,7 +2,9 @@
 import http from 'node:http'
 
 export function requestJson(port, path, { method = 'GET', headers = {}, body, timeoutMs = 1000 } = {}) {
-  return new Promise(resolve => {
+  return new Promise(resolveOnce => {
+    let done = false
+    const resolve = v => { if (!done) { done = true; resolveOnce(v) } }
     const req = http.request({ host: '127.0.0.1', port, path, method, headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers } }, res => {
       let text = ''
       res.setEncoding('utf8')
@@ -12,6 +14,8 @@ export function requestJson(port, path, { method = 'GET', headers = {}, body, ti
         try { json = JSON.parse(text) } catch {}
         resolve({ ok: true, status: res.statusCode, json })
       })
+      // A response destroyed after its headers (timeout, router dying mid-body) never emits 'end'.
+      res.on('close', () => resolve({ ok: false, error: Object.assign(new Error('response closed before it ended'), { code: 'ECONNRESET' }) }))
     })
     req.setTimeout(timeoutMs, () => req.destroy(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })))
     req.on('error', error => resolve({ ok: false, error }))
