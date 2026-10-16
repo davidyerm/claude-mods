@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { VERSION } from '../router/version.mjs'
-import { authFamily, authItem, formatReport, keyItem, limitsItems, providerProbeItem, routerItem, tlsItem, tokenItem, wiringItem } from '../hooks/doctor'
+import { authFamily, breakerItem, configItem, authItem, formatReport, keyItem, limitsItems, providerProbeItem, routerItem, tlsItem, tokenItem, wiringItem } from '../hooks/doctor'
 import type { World } from './world'
 import { CONFIG, CONFIG_JSON, down, routerStatus, run, start, TOKEN_FILE, USER_SETTINGS, world } from './world'
 
@@ -114,6 +114,7 @@ test('the report never holds a key or token value', async ($, on) => {
   const report = await doctor($)
   expect(report).not.toContain('tok-1')
   expect(report).not.toContain('sk-')
+  expect(report).not.toContain('fp-')
 })
 
 test('not wired yet: base URL and token lines fail with fixes', async ($, on) => {
@@ -184,4 +185,32 @@ test('a literal key is warned about; a down router fails with a fix', async ($, 
   expect(report).toContain(`⚠ [L] literal apiKey in ${CONFIG}\n    fix: move it to an environment variable and use "apiKeyEnv"`)
   expect(report).toMatch(/✗ router not running \(.*\)\n {4}fix: \/router restart/)
   expect(report).not.toContain('sk-x')
+})
+
+test('configItem: invalid and missing config', () => {
+  expect(configItem('c.json', null, [{ path: 'port', message: 'bad' }])).toMatchObject({ mark: '✗', fix: 'fix the file; the router keeps using the last valid version meanwhile' })
+  expect(configItem('c.json', null, [])).toEqual({ mark: '⚠', label: 'no config at c.json yet', fix: '/router setup, then /router add' })
+})
+
+test('breakerItem has no fix line', () => {
+  expect(breakerItem('DS')).toEqual({ mark: '⚠', label: '[DS] paused by the circuit breaker; it resumes by itself within 5 minutes' })
+})
+
+test('providerProbeItem: untrusted certificate', () => {
+  expect(providerProbeItem('DS', 'm', 'c', { ok: false, kind: 'tls', text: 'bad' })).toMatchObject({ mark: '✗', label: '[DS] certificate not trusted (bad)' })
+})
+
+test('an open breaker is reported through the hook', async ($, on) => {
+  const w = healthy(on)
+  w.http.set('GET /_router/status', () => ({ status: 200, json: routerStatus({ providers: [{ name: 'DS', available: false, breaker: 'open' }, { name: 'OR', available: true, breaker: 'closed' }] }) }))
+  await start($)
+  expect(await doctor($, true)).toContain('⚠ [DS] paused by the circuit breaker; it resumes by itself within 5 minutes')
+})
+
+test('an aborted upstream check is explained with a fix', async ($, on) => {
+  const w = healthy(on)
+  w.complete = () => ({ isAnswered: false, reason: 'aborted', usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } })
+  await start($)
+  expect(await doctor($, true)).toContain('✗ upstream sonnet request: aborted\n    fix: see ~/.claude/model-router/router.log, then /router doctor again')
+  expect(w.completes.at(-1)?.timeoutMs).toBe(30_000)
 })

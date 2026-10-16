@@ -139,7 +139,7 @@ export async function runDoctor($: EngineInterface, m: Monitor, { isOffline }: {
   items.push(tokenItem(token, (await $.env.get('ANTHROPIC_CUSTOM_HEADERS')) ?? ''))
 
   const family = authFamily(config.overrides)
-  const completed = family === null ? null : await $.model.complete({ model: family, prompt: 'Reply with OK.', maxTokens: 1 })
+  const completed = family === null ? null : await $.model.complete({ model: family, prompt: 'Reply with OK.', maxTokens: 1, timeoutMs: 30_000 })
   items.push(authItem(family, completed))
 
   if (config.upstream?.startsWith('https:'))
