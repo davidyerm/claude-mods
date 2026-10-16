@@ -60,7 +60,8 @@ export function createRouter(options = {}) {
   const env = options.env ?? process.env
   const paths = routerPaths(options.home ?? routerHome(env))
   const now = options.now ?? Date.now
-  const idleMs = options.idleMs ?? Number(env.MODEL_ROUTER_IDLE_MS ?? 30 * 60_000)
+  const envIdle = Number(env.MODEL_ROUTER_IDLE_MS ?? 30 * 60_000)
+  const idleMs = options.idleMs ?? (Number.isFinite(envIdle) && envIdle > 0 ? envIdle : 30 * 60_000)
   const timeouts = {
     connectTimeoutMs: options.connectTimeoutMs ?? CONNECT_TIMEOUT_MS,
     firstByteTimeoutMs: options.firstByteTimeoutMs ?? FIRST_BYTE_TIMEOUT_MS,
@@ -79,6 +80,7 @@ export function createRouter(options = {}) {
 
   let server
   let idleTimer
+  let drainTimer
   let active = 0
   let stopping = null
   let finished = false
@@ -249,6 +251,7 @@ export function createRouter(options = {}) {
   function finish() {
     if (finished) return
     finished = true
+    clearTimeout(drainTimer)
     server?.closeAllConnections()
     stopping.resolve()
     stopped()
@@ -263,6 +266,7 @@ export function createRouter(options = {}) {
       store.close()
       if (server) { server.close(); server.closeIdleConnections() }
       if (!server || !drain || active === 0) finish()
+      else drainTimer = setTimeout(finish, options.drainMs ?? 120_000)
     }
     return stopping.promise
   }
@@ -271,8 +275,14 @@ export function createRouter(options = {}) {
     const port = options.port ?? store.current()?.port ?? DEFAULT_PORT
     server = http.createServer({ noDelay: true }, (req, res) => void handle(req, res))
     return new Promise((resolve, reject) => {
-      server.once('error', err => { err.port = port; store.close(); reject(err) })
-      server.listen(port, '127.0.0.1', () => { touch(); resolve({ port: server.address().port }) })
+      const onListenError = err => { err.port = port; store.close(); reject(err) }
+      server.once('error', onListenError)
+      server.listen(port, '127.0.0.1', () => {
+        server.off('error', onListenError)
+        server.on('error', err => events.emit({ kind: 'upstream-error', text: `router server error: ${err.code ?? err.message}` }))
+        touch()
+        resolve({ port: server.address().port })
+      })
     })
   }
 

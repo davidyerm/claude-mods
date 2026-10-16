@@ -4,6 +4,7 @@ import http from 'node:http'
 import { makeHome, startRouter, request, spawnCli, waitFor } from './helpers.mjs'
 import { startFake, jsonReply, sseReply, closedPort } from './fakes.mjs'
 import { getStatus } from '../lib/client.mjs'
+import { createRouter } from '../lib/server.mjs'
 
 const TOKEN = { 'x-router-token': 'test-token' }
 
@@ -93,4 +94,26 @@ test('the CLI exits 0 when idle', async () => {
   const port = await closedPort()
   const cli = spawnCli(makeHome({ config: { port } }), { MODEL_ROUTER_IDLE_MS: '300' })
   assert.equal(await cli.exited, 0)
+})
+
+test('drain gives up after drainMs when a stream never ends', async () => {
+  const s = await routedSetup((req, res) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write('event: ping\ndata: {}\n\n') })
+  const home = makeHome({ config: { upstream: s.upstream.url, providers: [{ name: 'DS', baseUrl: s.provider.url, apiKeyEnv: 'DS_KEY', models: [{ id: 'ds-chat' }] }] } })
+  const r = await startRouter(home, { env: { DS_KEY: 'k' }, drainMs: 300 })
+  try {
+    request(r.url, { headers: TOKEN, body: { ...countBody, stream: true } })
+    await waitFor(() => s.provider.requests.length === 1)
+    const stop = await request(r.url, { path: '/_router/shutdown?drain=1', headers: TOKEN })
+    assert.equal(stop.status, 202)
+    await waitFor(async () => (await getStatus(r.port)).kind === 'down', 2000)
+  } finally { await r.close(); await s.cleanup() }
+})
+
+test('a non-numeric MODEL_ROUTER_IDLE_MS falls back to the default', async () => {
+  const router = createRouter({ home: makeHome({ config: {} }), port: 0, env: { MODEL_ROUTER_IDLE_MS: 'abc' } })
+  const { port } = await router.start()
+  try {
+    await new Promise(r => setTimeout(r, 300))
+    assert.equal((await getStatus(port)).kind, 'ours')
+  } finally { await router.stop({ drain: false }) }
 })
