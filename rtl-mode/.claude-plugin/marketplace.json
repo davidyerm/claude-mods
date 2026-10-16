@@ -1,0 +1,14 @@
+{
+  "name": "rtl-mode",
+  "owner": {
+    "name": "David Yermiyahu"
+  },
+  "description": "Hebrew right-to-left display mode for Claude Code",
+  "plugins": [
+    {
+      "name": "rtl-mode",
+      "source": "./",
+      "description": "Right-to-left display for Hebrew lines in the transcript, toggled by /rtl or a band button"
+    }
+  ]
+}

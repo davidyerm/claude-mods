@@ -1,0 +1,9 @@
+{
+  "name": "rtl-mode",
+  "version": "0.1.0",
+  "description": "Right-to-left display for Hebrew lines in the transcript, toggled by /rtl or a band button",
+  "author": {
+    "name": "David Yermiyahu"
+  },
+  "types": "./types/index.d.ts"
+}
