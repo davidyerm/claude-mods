@@ -14,11 +14,12 @@ Date: 2026-10-15 · Claude Code build at time of research: 2.1.300
 | Explore context / mod API | done |
 | Clarifying questions | done (answers below) |
 | Propose approaches | done → **Approach A chosen** |
-| Present design sections | Section 1 (Architecture) **approved**, Section 2 (Data flow) **approved** |
+| Present design sections | Sections 1–4 (architecture, data flow, error handling, testing) **all approved** |
 | Spike: open risks (a), (b), (d) | **done**, see Spike results |
-| Remaining sections (data flow, error handling, testing) | not started |
-| Write spec `docs/superpowers/specs/2026-10-15-model-router-design.md` | not started |
-| User reviews spec → `superpowers:writing-plans` | not started |
+| Write spec | **done:** `docs/superpowers/specs/2026-10-16-model-router-design.md` (self-reviewed; not committed, since `C:\dev\llm\mods` isn't a git repo) |
+| User reviews spec → `superpowers:writing-plans` | **awaiting user review of the spec** |
+
+> **The spec is now the authoritative design.** Where this file and the spec differ, the spec wins. Spec-time refinements: events are served over HTTP (`/_router/events`) as well as the file; the fallback model is encoded in the routed ID (`router:P/m#<claude-id>`); `x-router-fallback-model` was dropped; verification items V1–V7 come first in the plan.
 
 ## Goal (user's words, condensed)
 
