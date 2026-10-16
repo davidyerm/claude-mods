@@ -32,6 +32,14 @@ export function parseConfigText(text: string | null): Loaded {
     : { raw: raw as RawConfig, config: EMPTY, errors: result.errors }
 }
 
+// Pure: the router's port. An invalid file still names its port when it holds a valid
+// integer one; the router starts on it then too (in its degraded, pass-through mode).
+export function portOf(loaded: Loaded): number {
+  const port = loaded.raw?.port
+  if (loaded.errors.length > 0 && Number.isInteger(port) && port! >= 1 && port! <= 65535) return port!
+  return loaded.config.port
+}
+
 export async function loadConfig($: EngineInterface, paths: Paths): Promise<Loaded> {
   return parseConfigText(await readText($, paths.config))
 }

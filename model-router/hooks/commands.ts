@@ -3,7 +3,7 @@ import { allRefs, FAMILIES, parseRef } from '../router/lib/schema.mjs'
 import type { Family } from '../router/lib/schema.mjs'
 import { openWizard } from './add'
 import { postForget } from './client'
-import { ambiguousText, display, findModel, loadConfig, modelList, updateConfig } from './config'
+import { ambiguousText, display, findModel, loadConfig, modelList, portOf, updateConfig } from './config'
 import type { Match } from './config'
 import { runDoctor } from './doctor'
 import { readText } from './host'
@@ -64,7 +64,8 @@ function notOne(name: string, match: Match, list: string): string {
 
 export async function runRouterCommand($: EngineInterface, m: Monitor, cmd: RouterCommand): Promise<CommandRunResult> {
   const paths = await getPaths($)
-  const { config } = await loadConfig($, paths)
+  const loaded = await loadConfig($, paths)
+  const { config } = loaded
   switch (cmd.kind) {
     case 'usage': return { text: cmd.text }
     case 'picker': return openPicker($, m, 'router')
@@ -146,7 +147,7 @@ export async function runRouterCommand($: EngineInterface, m: Monitor, cmd: Rout
       return { text: n === null ? 'The router did not answer: /router doctor' : `Forgot ${n} learned limit${n === 1 ? '' : 's'}.` }
     }
     case 'restart': {
-      const r = await ensureRouter($, config.port, { force: true })
+      const r = await ensureRouter($, portOf(loaded), { force: true })
       if (r.ok) { m.status = r.status; m.lastSeq = r.status.eventsSeq; m.isDown = false }
       else { m.isDown = true; m.status = null }
       await refresh($, m)

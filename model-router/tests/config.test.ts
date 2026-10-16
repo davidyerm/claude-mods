@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { validateConfig } from '../router/lib/schema.mjs'
 import type { Config } from '../router/lib/schema.mjs'
-import { ambiguousText, applyUpdate, display, findModel, modelList, parseConfigText } from '../hooks/config'
+import { ambiguousText, applyUpdate, display, findModel, modelList, parseConfigText, portOf } from '../hooks/config'
 import type { RawConfig } from '../hooks/config'
 import { CONFIG_JSON } from './world'
 
@@ -68,4 +68,14 @@ test('ambiguousText lists the candidates and the fix', () => {
 test('modelList joins refs or points at /router add', () => {
   expect(modelList(config)).toBe('DS/ds-chat, DS/ds-reasoner, OR/anthropic/claude-x, OR/ds-chat')
   expect(modelList(parseConfigText(null).config)).toBe('none yet — add a provider with /router add')
+})
+
+test('portOf: an invalid config with a valid integer port keeps that port; else the config port (final fix I4)', () => {
+  const bad = { port: 5000, upstream: 'https://gw', providers: [{ name: 'DS', baseUrl: 'ftp://x', apiKeyEnv: 'K', models: [{ id: 'm' }] }] }
+  expect(portOf(parseConfigText(JSON.stringify(bad)))).toBe(5000)
+  expect(portOf(parseConfigText(JSON.stringify({ ...bad, port: 'x' })))).toBe(4141)
+  expect(portOf(parseConfigText(JSON.stringify({ ...bad, port: 70000 })))).toBe(4141)
+  expect(portOf(parseConfigText('{ nope'))).toBe(4141)
+  expect(portOf(parseConfigText(JSON.stringify({ port: 4242 })))).toBe(4242)
+  expect(portOf(parseConfigText(null))).toBe(4141)
 })

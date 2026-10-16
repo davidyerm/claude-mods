@@ -2,7 +2,6 @@ import http from 'node:http'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { VERSION } from '../version.mjs'
-import { DEFAULT_PORT } from './schema.mjs'
 import { routerHome, routerPaths, createConfigStore } from './config.mjs'
 import { resolveTarget } from './resolve.mjs'
 import { passThroughHeaders, rewriteRouted, withModel, customHeaderNames } from './rewrite.mjs'
@@ -115,7 +114,7 @@ export function createRouter(options = {}) {
     try { requestLog.append(`${JSON.stringify({ t: new Date(now()).toISOString(), ...fields })}\n`) } catch {}
   }
   const status = () => buildStatus({
-    version: VERSION, pid: process.pid, uptimeMs: now() - startedAt, config: store.current(),
+    version: VERSION, pid: process.pid, uptimeMs: now() - startedAt, config: store.current(), configOk: store.isOk(),
     keyAvailability, breaker, eventsSeq: events.lastSeq(),
   })
 
@@ -272,7 +271,7 @@ export function createRouter(options = {}) {
   }
 
   function start() {
-    const port = options.port ?? store.current()?.port ?? DEFAULT_PORT
+    const port = options.port ?? store.startPort()
     server = http.createServer({ noDelay: true }, (req, res) => void handle(req, res))
     return new Promise((resolve, reject) => {
       const onListenError = err => { err.port = port; store.close(); reject(err) }

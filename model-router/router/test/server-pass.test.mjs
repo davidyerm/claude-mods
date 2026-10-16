@@ -127,3 +127,17 @@ test('with no config the router answers 503 and still serves status', async () =
     assert.equal(JSON.parse((await request(s.url, { method: 'GET', path: '/_router/status' })).text).configOk, false)
   } finally { await s.close() }
 })
+
+test('an invalid config with a valid upstream still passes traffic through, with configOk false and a config-error', async () => {
+  const s = await setup({ config: { providers: [{ name: 'DS', baseUrl: 'ftp://nope', apiKeyEnv: 'DS_KEY', models: [{ id: 'ds-chat' }] }] } })
+  try {
+    const r = await request(s.url, { body: { model: 'claude-opus-5-5', max_tokens: 1, messages: [] } })
+    assert.equal(r.status, 200)
+    assert.equal(s.upstream.requests.length, 1)
+    const status = JSON.parse((await request(s.url, { method: 'GET', path: '/_router/status' })).text)
+    assert.equal(status.configOk, false)
+    assert.equal(status.upstream, s.upstream.url)
+    const { events } = JSON.parse((await request(s.url, { method: 'GET', path: '/_router/events?after=0' })).text)
+    assert.ok(events.some(e => e.kind === 'config-error'))
+  } finally { await s.cleanup() }
+})

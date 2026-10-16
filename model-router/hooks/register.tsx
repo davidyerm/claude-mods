@@ -1,7 +1,7 @@
 import type { Register } from 'claude-code'
 import { parseRouterArgs, runRouterCommand } from './commands'
 import { registerWizard } from './add'
-import { ambiguousText, display, findModel, loadConfig } from './config'
+import { ambiguousText, display, findModel, loadConfig, portOf } from './config'
 import { ensureRouter } from './lifecycle'
 import { health, newMonitor, refresh, tick } from './monitor'
 import { getPaths } from './paths'
@@ -21,8 +21,9 @@ export const register: Register = (on, options) => {
       description: 'Pick, override and manage models from other providers (model-router)',
       argumentHint: '[model|claude|default|override|add|remove|setup|uninstall|doctor|forget|restart]',
     })
-    const { config } = await loadConfig($, await getPaths($))
-    m.port = config.port
+    const loaded = await loadConfig($, await getPaths($))
+    const { config } = loaded
+    m.port = portOf(loaded)
     m.isWired = isWiredTo(await $.env.get('ANTHROPIC_BASE_URL'), m.port)
     const ensured = await ensureRouter($, m.port)
     if (ensured.ok) {

@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 import { allRefs } from '../router/lib/schema.mjs'
 import { getEvents, probeRouter } from './client'
 import type { Probe, RouterEvent, RouterStatus } from './client'
-import { display, loadConfig } from './config'
+import { display, loadConfig, portOf } from './config'
 import { ensureRouter } from './lifecycle'
 import type { Ensure } from './lifecycle'
 import { getPaths } from './paths'
@@ -78,8 +78,7 @@ export async function tick($: EngineInterface, m: Monitor): Promise<void> {
 
 // Every 10 s: the router's health; respawn it when it is gone.
 export async function health($: EngineInterface, m: Monitor): Promise<void> {
-  const { config } = await loadConfig($, await getPaths($))
-  m.port = config.port
+  m.port = portOf(await loadConfig($, await getPaths($)))
   const probe = await probeRouter($, m.port)
   const out = healthOutcome(probe, needsRespawn(probe) ? await ensureRouter($, m.port) : null)
   m.status = out.status

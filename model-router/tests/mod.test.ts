@@ -227,3 +227,13 @@ for (const value of ['http://127.0.0.1:4141', 'http://localhost:4141/', 'http://
     expect(w.stepModels).toEqual(['router:DS/ds-chat#claude-opus-5-5', 'router:DS/ds-reasoner#claude-opus-5-5'])
   })
 }
+
+test('an invalid config with a valid port: the router is ensured and monitored on that port (final fix I4)', async ($, on) => {
+  const w = world(on, { env: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:5000' }, config: { ...CONFIG_JSON, port: 5000, overrides: { haiku: 'Nope/x' } } })
+  await start($)
+  await w.clock.advance(10_000)
+  const statusUrls = w.fetches.filter(f => f.url.includes('/_router/status')).map(f => f.url)
+  expect(statusUrls.length).toBeGreaterThan(1)
+  expect(statusUrls.every(u => u.startsWith('http://127.0.0.1:5000/'))).toBe(true)
+  expect(w.statusLines.at(-1)).toBe('router: /router to pick')
+})
