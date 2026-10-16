@@ -40,7 +40,6 @@ test('/router answers usage for a wrong form', async ($, on) => {
 test('kinds whose modules land later answer "not available in this build yet"', async ($, on) => {
   world(on)
   await start($)
-  expect((await run($, 'router')).text).toBe('/router is not available in this build yet')
   expect((await run($, 'router', 'add')).text).toBe('/router add is not available in this build yet')
   expect((await run($, 'router', 'setup')).text).toBe('/router setup is not available in this build yet')
   expect((await run($, 'router', 'uninstall')).text).toBe('/router uninstall is not available in this build yet')

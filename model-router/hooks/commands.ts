@@ -10,6 +10,7 @@ import { refresh } from './monitor'
 import type { Monitor } from './monitor'
 import { getPaths } from './paths'
 import { clearPick, setPick } from './pick'
+import { openPicker } from './picker'
 
 export type RouterCommand =
   | { kind: 'picker' }
@@ -58,15 +59,15 @@ function notOne(name: string, match: Match, list: string): string {
   return match.kind === 'ambiguous' ? ambiguousText(name, match.refs) : `Unknown model "${name}". Models: ${list}`
 }
 
-// Kinds whose modules land in later tasks (picker 24, add 26, setup/uninstall 27, doctor 28).
-const notYet = (kind: string): CommandRunResult => ({ text: kind === 'picker' ? '/router is not available in this build yet' : `/router ${kind} is not available in this build yet` })
+// Kinds whose modules land in later tasks (add 26, setup/uninstall 27, doctor 28).
+const notYet = (kind: string): CommandRunResult => ({ text: `/router ${kind} is not available in this build yet` })
 
 export async function runRouterCommand($: EngineInterface, m: Monitor, cmd: RouterCommand): Promise<CommandRunResult> {
   const paths = await getPaths($)
   const { config } = await loadConfig($, paths)
   switch (cmd.kind) {
     case 'usage': return { text: cmd.text }
-    case 'picker':
+    case 'picker': return openPicker($, m, 'router')
     case 'add':
     case 'setup':
     case 'uninstall':

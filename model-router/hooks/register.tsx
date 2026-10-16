@@ -4,10 +4,12 @@ import { loadConfig } from './config'
 import { ensureRouter } from './lifecycle'
 import { health, newMonitor, refresh, tick } from './monitor'
 import { getPaths } from './paths'
+import { registerPicker } from './picker'
 import { getPick, isRoutable, isStarted, markStarted, ROUTED_PREFIX, setPick, wireModel } from './pick'
 
 export const register: Register = on => {
   const m = newMonitor()
+  registerPicker(on, m)
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
