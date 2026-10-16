@@ -1,0 +1,14 @@
+{
+  "limits": [
+    { "requested": 32000, "expect": 8192, "text": "{\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Invalid max_tokens value, the valid range of max_tokens is [1, 8192]\"}}" },
+    { "requested": 64000, "expect": 32000, "text": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"max_tokens: 64000 > 32000, which is the maximum allowed number of output tokens for claude-x\"}}" },
+    { "requested": 32000, "expect": 16384, "text": "max_tokens must be less than or equal to 16384" },
+    { "requested": 32000, "expect": 8192, "text": "The max_tokens you requested is too large for this model" },
+    { "requested": 40000, "expect": 32768, "text": "Requested max_output_tokens 40000 exceeds the model limit of 32768 (model glm-4.5)" }
+  ],
+  "notLimits": [
+    { "requested": 32000, "text": "This model's maximum context length is 65536 tokens. However, you requested 70000 tokens (38000 in the messages, 32000 in the completion)." },
+    { "requested": 32000, "text": "{\"error\":{\"message\":\"unknown field 'thinking'\"}}" },
+    { "requested": 32000, "text": "prompt is too long: 210000 tokens > 200000 maximum" }
+  ]
+}
