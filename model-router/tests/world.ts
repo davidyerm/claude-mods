@@ -175,12 +175,14 @@ function builtinTool(w: World, sub: string, args: readonly string[], stdin: stri
     case 'delete': w.files.delete(args[0]!); return { ok: true }
     case 'ensure-token': {
       const existing = w.files.get(args[0]!)
-      if (existing) return { ok: true, token: existing, created: false }
+      if (existing) return { ok: true, token: existing.trim(), created: false }
       w.files.set(args[0]!, 'tok-1')
       return { ok: true, token: 'tok-1', created: true }
     }
     case 'env-check': return { ok: true, keys: Object.fromEntries(args.map(n => [n, `fp-${n === 'DS_KEY' ? 'ds' : n === 'OR_KEY' ? 'or' : 'x'}`])) }
-    case 'start': up(w); return { ok: true, started: true, pid: 42, version: VERSION }
+    case 'start':
+      if (w.http.has('GET /_router/status')) return { ok: true, started: false, pid: 42, version: VERSION }
+      up(w); return { ok: true, started: true, pid: 42, version: VERSION }
     case 'probe': return { ok: true, status: 200 }
     default: return { ok: false, error: `no stub for ${sub}` }
   }
