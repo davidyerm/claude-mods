@@ -28,6 +28,16 @@ test('readConfigFile reports missing files and bad JSON', () => {
   assert.match(r.errors[0].message, /invalid JSON/)
 })
 
+test('readConfigFile never echoes file content in its errors', () => {
+  const home = tempHome()
+  const file = path.join(home, 'model-router.json')
+  writeJson(file, '{"apiKey": sk-secret-123456}')
+  const r = readConfigFile(file)
+  assert.equal(r.ok, false)
+  assert.match(r.errors[0].message, /invalid JSON/)
+  assert.doesNotMatch(r.errors[0].message, /sk-secret/)
+})
+
 test('the store keeps the last valid config and reports errors and reloads', async () => {
   const home = tempHome()
   const file = path.join(home, 'model-router.json')

@@ -20,6 +20,16 @@ export function routerPaths(home) {
   }
 }
 
+// Node's JSON.parse messages quote a snippet of the input, which may hold a key.
+// Report only the location, never the message text.
+function jsonErrorText(message) {
+  const pos = /position (\d+)/.exec(message)
+  if (pos) return `invalid JSON at position ${pos[1]}`
+  const lc = /line (\d+) column (\d+)/.exec(message)
+  if (lc) return `invalid JSON at line ${lc[1]} column ${lc[2]}`
+  return 'invalid JSON'
+}
+
 export function readConfigFile(file) {
   let text
   try { text = fs.readFileSync(file, 'utf8') }
@@ -28,7 +38,7 @@ export function readConfigFile(file) {
     return { ok: false, errors: [{ path: '', message: `cannot read ${file}: ${err.code ?? err.message}` }] }
   }
   let raw
-  try { raw = JSON.parse(text) } catch (err) { return { ok: false, errors: [{ path: '', message: `invalid JSON: ${err.message}` }] } }
+  try { raw = JSON.parse(text) } catch (err) { return { ok: false, errors: [{ path: '', message: jsonErrorText(err.message) }] } }
   return validateConfig(raw)
 }
 
@@ -51,6 +61,7 @@ export function createConfigStore({ file, onEvent = () => {}, debounceMs = 300 }
     clearTimeout(timer)
     timer = setTimeout(reload, debounceMs)
   })
+  watcher.on('error', err => onEvent({ kind: 'config-error', text: `config watch failed: ${err.code ?? 'error'}` }))
   return {
     current: () => current,
     reload,
