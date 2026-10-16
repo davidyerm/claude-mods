@@ -39,6 +39,15 @@ test('D9: inbound auth, identity, token and custom headers never reach a provide
   assert.equal(headers['user-agent'], 'claude-cli')
 })
 
+test('routed requests carry only the allowlisted inbound headers', () => {
+  const more = { ...inbound, accept: 'application/json', 'content-type': 'application/json; charset=utf-8', 'x-stainless-os': 'Windows', 'x-stainless-lang': 'js', 'x-corp-auth': 'secret', 'x-app': 'cli', 'anthropic-dangerous-direct-browser-access': 'true' }
+  const stripped = rewriteRouted({ ...base, headers: more }).headers
+  assert.deepEqual(Object.keys(stripped).sort(), ['accept', 'anthropic-version', 'content-type', 'user-agent', 'x-api-key', 'x-stainless-lang', 'x-stainless-os'])
+  assert.equal(stripped['content-type'], 'application/json')
+  const kept = rewriteRouted({ ...base, headers: more, strip: [] }).headers
+  assert.deepEqual(Object.keys(kept).sort(), ['accept', 'anthropic-beta', 'anthropic-version', 'content-type', 'user-agent', 'x-api-key', 'x-stainless-lang', 'x-stainless-os'])
+})
+
 test('D9/D10: metadata always goes, the strip list goes, cache_control stays, model is swapped', () => {
   const out = JSON.parse(rewriteRouted(base).body)
   assert.equal(out.model, 'deepseek-chat')

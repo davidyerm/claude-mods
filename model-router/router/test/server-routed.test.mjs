@@ -39,6 +39,17 @@ test('a routed main pick reaches the provider rewritten (D9, D10), query dropped
   } finally { await s.cleanup() }
 })
 
+test('an inbound header that is not in ANTHROPIC_CUSTOM_HEADERS never reaches the provider', async () => {
+  const s = await setup()
+  try {
+    const r = await request(s.url, { headers: { ...INBOUND, 'x-corp-auth': 'secret', 'x-stainless-os': 'Windows' }, body: bodyFor(MAIN) })
+    assert.equal(r.status, 200)
+    const seen = s.provider.requests[0].headers
+    assert.equal(seen['x-corp-auth'], undefined)
+    assert.equal(seen['x-stainless-os'], 'Windows')
+  } finally { await s.cleanup() }
+})
+
 test('a routed request without the local token is refused with 401', async () => {
   const s = await setup()
   try {
