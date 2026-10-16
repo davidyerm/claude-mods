@@ -1,6 +1,7 @@
 import type { CommandRunResult, EngineInterface } from 'claude-code'
 import { allRefs, FAMILIES, parseRef } from '../router/lib/schema.mjs'
 import type { Family } from '../router/lib/schema.mjs'
+import { openWizard } from './add'
 import { postForget } from './client'
 import { ambiguousText, display, findModel, loadConfig, modelList, updateConfig } from './config'
 import type { Match } from './config'
@@ -59,7 +60,7 @@ function notOne(name: string, match: Match, list: string): string {
   return match.kind === 'ambiguous' ? ambiguousText(name, match.refs) : `Unknown model "${name}". Models: ${list}`
 }
 
-// Kinds whose modules land in later tasks (add 26, setup/uninstall 27, doctor 28).
+// Kinds whose modules land in later tasks (setup/uninstall 27, doctor 28).
 const notYet = (kind: string): CommandRunResult => ({ text: `/router ${kind} is not available in this build yet` })
 
 export async function runRouterCommand($: EngineInterface, m: Monitor, cmd: RouterCommand): Promise<CommandRunResult> {
@@ -68,7 +69,7 @@ export async function runRouterCommand($: EngineInterface, m: Monitor, cmd: Rout
   switch (cmd.kind) {
     case 'usage': return { text: cmd.text }
     case 'picker': return openPicker($, m, 'router')
-    case 'add':
+    case 'add': return openWizard($)
     case 'setup':
     case 'uninstall':
     case 'doctor':

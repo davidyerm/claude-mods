@@ -1,5 +1,6 @@
 import type { Register } from 'claude-code'
 import { parseRouterArgs, runRouterCommand } from './commands'
+import { registerWizard } from './add'
 import { ambiguousText, display, findModel, loadConfig } from './config'
 import { ensureRouter } from './lifecycle'
 import { health, newMonitor, refresh, tick } from './monitor'
@@ -11,6 +12,7 @@ export const register: Register = (on, options) => {
   const m = newMonitor()
   const takeOver = options.takeOverModelCommand !== false
   registerPicker(on, m)
+  registerWizard(on, m)
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
