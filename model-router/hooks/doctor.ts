@@ -1,4 +1,4 @@
-import type { EngineInterface, ModelCompleteResult } from 'claude-code'
+import type { EngineInterface, ModelCompleteResult, SettingsSource } from 'claude-code'
 import { FAMILIES, formatErrors } from '../router/lib/schema.mjs'
 import type { Config, ConfigError, Family } from '../router/lib/schema.mjs'
 import { VERSION } from '../router/version.mjs'
@@ -10,7 +10,7 @@ import { readText, runTool } from './host'
 import type { ToolOut } from './host'
 import type { Monitor } from './monitor'
 import { getPaths } from './paths'
-import { describeSource, findBaseUrl } from './setup'
+import { describeSource, findBaseUrl, findHeaderSource, hasTokenHeader } from './setup'
 import type { Base } from './setup'
 
 export type Mark = '✓' | '⚠' | '✗'
@@ -58,10 +58,15 @@ export function wiringItem(base: Base, live: string | undefined, url: string): I
   return bad(`base URL is ${base.value ?? 'not set'} (${where}), not the router`, base.source === 'policy' || base.source === 'flag' ? `change ANTHROPIC_BASE_URL in ${where} to ${url}` : '/router setup')
 }
 
-export function tokenItem(token: string, headers: string): Item {
+// headerSource: a source above the user settings that sets ANTHROPIC_CUSTOM_HEADERS
+// (setup cannot fix the header there, so the fix names it).
+export function tokenItem(token: string, headers: string, headerSource: SettingsSource | null = null, tokenPath = ''): Item {
   if (!token) return bad('no router token yet', '/router setup')
-  if (headers.split(/\r?\n/).some(l => l.trim() === `x-router-token: ${token}`)) return ok('x-router-token header present')
-  return bad('this session does not send the x-router-token header (routed requests get 401)', '/router setup, then restart Claude Code')
+  if (hasTokenHeader(headers, token)) return ok('x-router-token header present')
+  const fix = headerSource
+    ? `add \`x-router-token: <the token from ${tokenPath}>\` to ANTHROPIC_CUSTOM_HEADERS in ${describeSource(headerSource)}, then restart Claude Code`
+    : '/router setup, then restart Claude Code'
+  return bad('this session does not send the x-router-token header (routed requests get 401)', fix)
 }
 
 // The first family no override takes away from Claude, or null when all are overridden.
@@ -136,7 +141,7 @@ export async function runDoctor($: EngineInterface, m: Monitor, { isOffline }: {
   items.push(wiringItem(await findBaseUrl($), await $.env.get('ANTHROPIC_BASE_URL'), url))
 
   const token = (await readText($, paths.token))?.trim() ?? ''
-  items.push(tokenItem(token, (await $.env.get('ANTHROPIC_CUSTOM_HEADERS')) ?? ''))
+  items.push(tokenItem(token, (await $.env.get('ANTHROPIC_CUSTOM_HEADERS')) ?? '', await findHeaderSource($), paths.token))
 
   const family = authFamily(config.overrides)
   const completed = family === null ? null : await $.model.complete({ model: family, prompt: 'Reply with OK.', maxTokens: 1, timeoutMs: 30_000 })

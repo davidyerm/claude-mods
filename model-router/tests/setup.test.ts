@@ -64,7 +64,7 @@ test('planSetup: stops for a project setting, an already-wired URL, a bad config
     expect(project.text).toContain('"upstream": "https://gw.project"')
   }
   const done = plan({ base: { value: ROUTER, source: 'user' }, upstreamNow: 'https://gw.corp' })
-  expect(done.kind === 'stop' && done.text.startsWith(`Already set up: ANTHROPIC_BASE_URL → ${ROUTER}`)).toBe(true)
+  expect(done.kind === 'wired' && done.text.startsWith(`Already set up: ANTHROPIC_BASE_URL → ${ROUTER}`)).toBe(true)
   expect(plan({ loadedErrors: 'bad' })).toEqual({ kind: 'stop', text: 'C is invalid: bad. Fix it, then run /router setup again.' })
   expect(plan({ settings: 'invalid' })).toEqual({ kind: 'stop', text: 'S is not a JSON object; fix it, then run /router setup again.' })
 })
@@ -136,7 +136,8 @@ test('setup twice: the second run reports and changes nothing', async ($, on) =>
   expect(text.startsWith(`Already set up: ANTHROPIC_BASE_URL → ${ROUTER}`)).toBe(true)
   expect(w.files.get(USER_SETTINGS)).toBe(before)
   expect(w.files.get(BACKUP)).toBe(backup)
-  expect(w.runs.length).toBe(runs)
+  // Only the token is checked again (final fix I2).
+  expect(w.runs.slice(runs).map(r => r.argv[2])).toEqual(['ensure-token'])
 })
 
 test('no settings file and the gateway in the OS env: the file is created, source os', async ($, on) => {
@@ -226,7 +227,7 @@ test('planSetup: a loopback base is a router, never an upstream', () => {
   }
   // The same URL with a trailing slash is already set up; localhost:4141 is spelled differently, so it is rewired (above).
   const same = plan({ base: { value: 'http://127.0.0.1:4141/', source: 'user' }, upstreamNow: 'https://gw.corp' })
-  expect(same.kind === 'stop' && same.text.startsWith(`Already set up: ANTHROPIC_BASE_URL → ${ROUTER}`)).toBe(true)
+  expect(same.kind === 'wired' && same.text.startsWith(`Already set up: ANTHROPIC_BASE_URL → ${ROUTER}`)).toBe(true)
   expect(plan({ base: { value: 'http://127.0.0.1:4000', source: 'user' }, upstreamNow: undefined, configPath: 'C' })).toEqual({
     kind: 'stop',
     text: 'ANTHROPIC_BASE_URL already points at a local router (http://127.0.0.1:4000) and no upstream is saved; set "upstream" in C by hand, then run /router setup again.',
@@ -383,4 +384,80 @@ test('a settings.json that exists but cannot be resolved is not written', async 
   const text = (await run($, 'router', 'setup')).text ?? ''
   expect(text).toContain(`✗ could not resolve ${USER_SETTINGS} — settings.json unchanged; run /router setup again`)
   expect(w.files.get(USER_SETTINGS)).toBe(before)
+})
+
+// ---- already wired: the token header is repaired (final fix I2) ----
+
+const WIRED_CONFIG = { version: 1, providers: [], overrides: {}, upstream: 'https://gw.corp' }
+const REPAIRED = `✓ x-router-token header repaired in ${USER_SETTINGS}; restart Claude Code`
+const HEADER_WARNING = `⚠ ANTHROPIC_CUSTOM_HEADERS is also set in the project's .claude/settings.json, which outranks ~/.claude/settings.json; add \`x-router-token: <the token from ${TOKEN_FILE}>\` there by hand.`
+
+test('wired, token file missing: setup creates the token and repairs the header', async ($, on) => {
+  const w = world(on, { config: WIRED_CONFIG })
+  userSettings(w, { theme: 'dark', env: { ANTHROPIC_BASE_URL: ROUTER, ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a' } })
+  await start($)
+  const text = (await run($, 'router', 'setup')).text ?? ''
+  expect(text).toBe(REPAIRED)
+  expect(w.files.get(TOKEN_FILE)).toBe('tok-1')
+  expect(readJson(w, USER_SETTINGS)).toEqual({ theme: 'dark', env: { ANTHROPIC_BASE_URL: ROUTER, ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a\nx-router-token: tok-1' } })
+  expect(text).not.toContain('tok-1')
+})
+
+test('wired, the header holds another token: setup repairs it', async ($, on) => {
+  const w = world(on, { config: WIRED_CONFIG, files: { [TOKEN_FILE]: 'tok-1' } })
+  userSettings(w, { env: { ANTHROPIC_BASE_URL: ROUTER, ANTHROPIC_CUSTOM_HEADERS: 'x-router-token: old' } })
+  await start($)
+  const text = (await run($, 'router', 'setup')).text ?? ''
+  expect(text).toBe(REPAIRED)
+  expect(readJson(w, USER_SETTINGS).env.ANTHROPIC_CUSTOM_HEADERS).toBe('x-router-token: tok-1')
+  expect(text).not.toContain('tok-1')
+  expect(text).not.toContain('old')
+})
+
+test('wired and all good: "Already set up", nothing written', async ($, on) => {
+  const w = world(on, { config: WIRED_CONFIG, files: { [TOKEN_FILE]: 'tok-1' } })
+  userSettings(w, { env: { ANTHROPIC_BASE_URL: ROUTER, ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a\nx-router-token: tok-1' } })
+  await start($)
+  const before = w.files.get(USER_SETTINGS)
+  const text = (await run($, 'router', 'setup')).text ?? ''
+  expect(text).toBe([`Already set up: ANTHROPIC_BASE_URL → ${ROUTER} (in ~/.claude/settings.json).`, 'Upstream: https://gw.corp.', 'Run /router doctor to check everything.'].join('\n'))
+  expect(w.files.get(USER_SETTINGS)).toBe(before)
+  expect(w.runs.some(r => r.argv[2] === 'write')).toBe(false)
+})
+
+test('wired, settings.json unreadable: setup stops and writes nothing', async ($, on) => {
+  const w = world(on, { config: WIRED_CONFIG })
+  userSettings(w, { env: { ANTHROPIC_BASE_URL: ROUTER } })
+  w.unreadable.add(USER_SETTINGS)
+  await start($)
+  const before = snapshot(w)
+  const text = (await run($, 'router', 'setup')).text
+  expect(text).toBe(`Could not read ${USER_SETTINGS}; nothing was changed. Check that no other plugin blocks reading it, then run /router setup again.`)
+  expect(snapshot(w)).toBe(before)
+})
+
+test('wired, settings.json unresolvable: the header is not repaired and settings.json is unchanged', async ($, on) => {
+  const w = world(on, { config: WIRED_CONFIG, files: { [TOKEN_FILE]: 'tok-1' } })
+  userSettings(w, { env: { ANTHROPIC_BASE_URL: ROUTER } })
+  w.unstatable.add(USER_SETTINGS)
+  await start($)
+  const before = w.files.get(USER_SETTINGS)
+  const text = (await run($, 'router', 'setup')).text
+  expect(text).toBe(`✗ could not resolve ${USER_SETTINGS} — settings.json unchanged; run /router setup again`)
+  expect(w.files.get(USER_SETTINGS)).toBe(before)
+})
+
+test('a project source with headers: setup warns, naming the project file and the token path, never the token', async ($, on) => {
+  const w = unwired(on, { config: null })
+  userSettings(w, { env: { ANTHROPIC_BASE_URL: 'https://gw.corp' } })
+  w.settings.project = { env: { ANTHROPIC_CUSTOM_HEADERS: 'X-Project: p' } }
+  await start($)
+  const text = (await run($, 'router', 'setup')).text ?? ''
+  expect(text).toContain(HEADER_WARNING)
+  expect(text).not.toContain('tok-1')
+  reloadSettings(w)
+  const again = (await run($, 'router', 'setup')).text ?? ''
+  expect(again.startsWith(`Already set up: ANTHROPIC_BASE_URL → ${ROUTER}`)).toBe(true)
+  expect(again).toContain(HEADER_WARNING)
+  expect(again).not.toContain('tok-1')
 })

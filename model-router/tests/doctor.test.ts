@@ -214,3 +214,13 @@ test('an aborted upstream check is explained with a fix', async ($, on) => {
   expect(await doctor($, true)).toContain('✗ upstream sonnet request: aborted\n    fix: see ~/.claude/model-router/router.log, then /router doctor again')
   expect(w.completes.at(-1)?.timeoutMs).toBe(30_000)
 })
+
+test('a project source with headers: the token fix names the project file, never the token (final fix I2)', async ($, on) => {
+  const w = healthy(on, { env: { ANTHROPIC_CUSTOM_HEADERS: 'X-Project: p' } })
+  w.settings.project = { env: { ANTHROPIC_CUSTOM_HEADERS: 'X-Project: p' } }
+  await start($)
+  const report = await doctor($, true)
+  expect(report).toContain(`✗ this session does not send the x-router-token header (routed requests get 401)
+    fix: add \`x-router-token: <the token from ${TOKEN_FILE}>\` to ANTHROPIC_CUSTOM_HEADERS in the project's .claude/settings.json, then restart Claude Code`)
+  expect(report).not.toContain('tok-1')
+})

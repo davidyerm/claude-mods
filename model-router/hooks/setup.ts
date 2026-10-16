@@ -6,6 +6,7 @@ import { deleteFile, readText, runTool, writeFile } from './host'
 import { ensureRouter } from './lifecycle'
 import type { Monitor } from './monitor'
 import { getPaths } from './paths'
+import type { Paths } from './paths'
 
 export type BaseUrlSource = SettingsSource | 'os' | 'none'
 export type Backup = { version: 1; baseUrl: string | null; source: BaseUrlSource; customHeaders: string | null; writtenHeaders?: string | null; at: string }
@@ -49,6 +50,26 @@ export function withTokenHeader(existing: string | undefined, token: string): st
   return [withoutTokenHeader(existing), `x-router-token: ${token}`].filter(Boolean).join('\n')
 }
 
+export const hasTokenHeader = (headers: string | undefined, token: string) =>
+  (headers ?? '').split(/\r?\n/).some(l => l.trim() === `x-router-token: ${token}`)
+
+// The highest source above the user settings that sets ANTHROPIC_CUSTOM_HEADERS: its
+// value replaces the user's, so the token line must be added there by hand.
+export function headerSourceOf(bySource: Partial<Record<SettingsSource, unknown>>): SettingsSource | null {
+  return ABOVE_USER.find(source => envOf(bySource[source]).ANTHROPIC_CUSTOM_HEADERS !== undefined) ?? null
+}
+
+export const headerWarning = (source: SettingsSource, tokenPath: string) =>
+  `⚠ ANTHROPIC_CUSTOM_HEADERS is also set in ${describeSource(source)}, which outranks ~/.claude/settings.json; add \`x-router-token: <the token from ${tokenPath}>\` there by hand.`
+
+// Already wired: the settings text with the token line put back, or null when it is there.
+export function repairedSettings(settings: Settings | null, token: string, osHeaders: string | undefined): string | null {
+  const userEnv = envOf(settings)
+  if (hasTokenHeader(userEnv.ANTHROPIC_CUSTOM_HEADERS, token)) return null
+  const env = { ...userEnv, ANTHROPIC_CUSTOM_HEADERS: withTokenHeader(userEnv.ANTHROPIC_CUSTOM_HEADERS ?? osHeaders, token) }
+  return `${JSON.stringify({ ...(settings ?? {}), env }, null, 2)}\n`
+}
+
 // A base URL that already points at a local router (this one, or one on another port).
 export function isLoopbackBase(value: string | undefined): boolean {
   if (!value) return false
@@ -83,6 +104,7 @@ export function classifySettings(text: string | null, isThere: boolean, userRead
 
 export type SetupPlan =
   | { kind: 'stop'; text: string }
+  | { kind: 'wired'; text: string }
   | { kind: 'proceed'; upstream: string; isUpstreamSaved: boolean; isBackupWritten: boolean; rewiredFrom: string | null }
 
 // What setup does before it writes anything: stop with an explanation, or go on.
@@ -98,7 +120,7 @@ export function planSetup(i: {
   if (i.loadedErrors) return { kind: 'stop', text: `${i.configPath} is invalid: ${i.loadedErrors}. Fix it, then run /router setup again.` }
   if (i.base.value !== undefined && sameUrl(i.base.value, i.url))
     return {
-      kind: 'stop',
+      kind: 'wired',
       text: [`Already set up: ANTHROPIC_BASE_URL → ${i.url} (in ${describeSource(i.base.source)}).`, `Upstream: ${i.upstreamNow ?? 'not set'}.`, 'Run /router doctor to check everything.'].join('\n'),
     }
   if ((ABOVE_USER as readonly string[]).includes(i.base.source))
@@ -174,10 +196,18 @@ export function restoreSettings(settings: Settings | null, backup: Backup): { te
 
 // ---- thin shell ------------------------------------------------------------
 
-export async function findBaseUrl($: EngineInterface): Promise<Base> {
+async function readSources($: EngineInterface): Promise<Partial<Record<SettingsSource, unknown>>> {
   const bySource: Partial<Record<SettingsSource, unknown>> = {}
   for (const source of [...ABOVE_USER, 'user'] as const) bySource[source] = await $.settings.read({ source })
-  return pickBaseUrl(bySource, await $.env.get('ANTHROPIC_BASE_URL'))
+  return bySource
+}
+
+export async function findBaseUrl($: EngineInterface): Promise<Base> {
+  return pickBaseUrl(await readSources($), await $.env.get('ANTHROPIC_BASE_URL'))
+}
+
+export async function findHeaderSource($: EngineInterface): Promise<SettingsSource | null> {
+  return headerSourceOf(await readSources($))
 }
 
 async function readUserSettings($: EngineInterface, path: string): Promise<ReadSettings> {
@@ -226,9 +256,12 @@ export async function runSetup($: EngineInterface, m: Monitor): Promise<string> 
     settingsPath: paths.userSettings,
   })
   if (plan.kind === 'stop') return plan.text
+  const headerSource = await findHeaderSource($)
+  const warning = headerSource ? [headerWarning(headerSource, paths.token)] : []
+  if (plan.kind === 'wired') return [await repairToken($, paths, settings, plan.text), ...warning].join('\n')
   const safe = settings === 'invalid' || settings === 'unreadable' ? null : settings
   const lines: string[] = []
-  const fail = (line: string) => [...lines, line].join('\n')
+  const fail = (line: string) => [...lines, line, ...warning].join('\n')
 
   if (plan.isUpstreamSaved) {
     const err = await tryWrite(paths.config, 'nothing was changed', 'setup', 'write', async () => {
@@ -264,12 +297,30 @@ export async function runSetup($: EngineInterface, m: Monitor): Promise<string> 
   if (ensured.ok) { m.status = ensured.status; m.isDown = false }
   lines.push(ensured.ok ? `✓ router running (pid ${ensured.status.pid})` : `✗ router did not start: ${ensured.reason} — /router doctor`)
 
+  lines.push(...warning)
   lines.push(
     '',
     `Undo by hand: in ${paths.userSettings}, ${base.source === 'user' && !plan.rewiredFrom ? `set env.ANTHROPIC_BASE_URL back to ${base.value}` : 'remove env.ANTHROPIC_BASE_URL'} and remove the x-router-token line from env.ANTHROPIC_CUSTOM_HEADERS. Or run /router uninstall.`,
     'Restart Claude Code to activate. Then run /router doctor to check upstream auth.',
   )
   return lines.join('\n')
+}
+
+// Already wired: put a missing or stale x-router-token line back in the user settings,
+// under the same rules as setup (an unreadable or unresolvable file is never written).
+async function repairToken($: EngineInterface, paths: Paths, settings: ReadSettings, alreadyText: string): Promise<string> {
+  if (settings === 'unreadable') return unreadableText(paths.userSettings, 'setup')
+  if (settings === 'invalid') return `${paths.userSettings} is not a JSON object; fix it, then run /router setup again.`
+  const tokenOut = await runTool($, ['ensure-token', paths.token])
+  if (tokenOut.ok !== true || typeof tokenOut.token !== 'string') return `✗ could not create the token: ${tokenOut.error ?? 'unknown error'}`
+  const tokenWarning = typeof tokenOut.warning === 'string' ? [`⚠ ${tokenOut.warning}`] : []
+  const text = repairedSettings(settings, tokenOut.token, await $.env.get('ANTHROPIC_CUSTOM_HEADERS'))
+  if (text === null) return [alreadyText, ...tokenWarning].join('\n')
+  const target = await writeTarget($, paths.userSettings)
+  if (target === null) return unresolvedLine(paths.userSettings, 'setup')
+  const err = await tryWrite(target, `${paths.userSettings} is unchanged`, 'setup', 'write', () => writeFile($, target, text))
+  if (err) return err
+  return [...tokenWarning, `✓ x-router-token header repaired in ${paths.userSettings}; restart Claude Code`].join('\n')
 }
 
 export async function runUninstall($: EngineInterface): Promise<string> {
