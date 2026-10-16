@@ -77,8 +77,9 @@ test('mergeSettings keeps other keys and env vars, merges CRLF headers, creates 
 
 test('backupOf records the original gateway and headers', () => {
   expect(backupOf({ value: 'https://gw.corp/', source: 'user' }, { env: { ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a\r\nX-Team: b' } }, 'T'))
-    .toEqual({ version: 1, baseUrl: 'https://gw.corp/', source: 'user', customHeaders: 'X-Corp: a\r\nX-Team: b', at: 'T' })
-  expect(backupOf({ value: undefined, source: 'none' }, null, 'T')).toEqual({ version: 1, baseUrl: null, source: 'none', customHeaders: null, at: 'T' })
+    .toEqual({ version: 1, baseUrl: 'https://gw.corp/', source: 'user', customHeaders: 'X-Corp: a\r\nX-Team: b', writtenHeaders: 'X-Corp: a\nX-Team: b', at: 'T' })
+  expect(backupOf({ value: undefined, source: 'none' }, null, 'T')).toEqual({ version: 1, baseUrl: null, source: 'none', customHeaders: null, writtenHeaders: null, at: 'T' })
+  expect(backupOf({ value: undefined, source: 'none' }, null, 'T', 'X-Os: 1\r\nx-router-token: z').writtenHeaders).toBe('X-Os: 1')
 })
 
 test('restoreSettings puts the originals back exactly', () => {
@@ -104,7 +105,7 @@ test('setup from user settings: saves upstream, token, backup, rewires settings 
   const s = readJson(w, USER_SETTINGS)
   expect(s.theme).toBe('dark')
   expect(s.env).toEqual({ FOO: '1', ANTHROPIC_BASE_URL: ROUTER, ANTHROPIC_CUSTOM_HEADERS: 'x-router-token: tok-1' })
-  expect(readJson(w, BACKUP)).toEqual({ version: 1, baseUrl: 'https://gw.corp/', source: 'user', customHeaders: null, at: '1970-01-01T00:00:00.000Z' })
+  expect(readJson(w, BACKUP)).toEqual({ version: 1, baseUrl: 'https://gw.corp/', source: 'user', customHeaders: null, writtenHeaders: null, at: '1970-01-01T00:00:00.000Z' })
   expect(text).toContain('Restart Claude Code to activate.')
   expect(text).toContain('set env.ANTHROPIC_BASE_URL back to https://gw.corp/')
   expect(w.runs.some(r => r.argv[2] === 'ensure-token')).toBe(true)
@@ -220,7 +221,7 @@ test('planSetup: a loopback base is a router, never an upstream', () => {
     expect(plan({ base: { value: old, source: 'user' }, upstreamNow: 'https://gw.corp' }))
       .toEqual({ kind: 'proceed', upstream: 'https://gw.corp', isUpstreamSaved: false, isBackupWritten: false, rewiredFrom: old })
   }
-  // The same router: a trailing slash or localhost is not another router on this port.
+  // The same URL with a trailing slash is already set up; localhost:4141 is spelled differently, so it is rewired (above).
   const same = plan({ base: { value: 'http://127.0.0.1:4141/', source: 'user' }, upstreamNow: 'https://gw.corp' })
   expect(same.kind === 'stop' && same.text.startsWith(`Already set up: ANTHROPIC_BASE_URL → ${ROUTER}`)).toBe(true)
   expect(plan({ base: { value: 'http://127.0.0.1:4000', source: 'user' }, upstreamNow: undefined, configPath: 'C' })).toEqual({
@@ -347,4 +348,36 @@ test('uninstall with a malformed backup changes nothing', async ($, on) => {
   const text = (await run($, 'router', 'uninstall')).text
   expect(text).toBe(`The setup backup at ${BACKUP} is not valid; nothing was changed. Restore ANTHROPIC_BASE_URL by hand.`)
   expect(snapshot(w)).toBe(before)
+})
+
+test('restoreSettings removes headers setup copied from the OS env, keeps ones added since', () => {
+  const backup: Backup = { version: 1, baseUrl: null, source: 'none', customHeaders: null, writtenHeaders: 'X-Corp: a', at: 'T' }
+  expect(JSON.parse(restoreSettings({ env: { ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a\nx-router-token: t' } }, backup).text)).toEqual({})
+  expect(JSON.parse(restoreSettings({ env: { ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a\nX-New: n\nx-router-token: t' } }, backup).text).env.ANTHROPIC_CUSTOM_HEADERS).toBe('X-Corp: a\nX-New: n')
+  // An older backup without writtenHeaders compares against customHeaders.
+  const old: Backup = { version: 1, baseUrl: null, source: 'none', customHeaders: 'X-Corp: a', at: 'T' }
+  expect(JSON.parse(restoreSettings({ env: { ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a\nx-router-token: t' } }, old).text).env.ANTHROPIC_CUSTOM_HEADERS).toBe('X-Corp: a')
+  expect(parseBackup(JSON.stringify({ ...old, writtenHeaders: 5 }))).toBe(null)
+  expect(parseBackup(JSON.stringify(old))).toEqual(old)
+})
+
+test('headers that came from the OS env are not left behind in settings.json by uninstall', async ($, on) => {
+  const w = world(on, { config: null, env: { ANTHROPIC_CUSTOM_HEADERS: 'X-Corp: a' } })
+  userSettings(w, null)
+  await start($)
+  await run($, 'router', 'setup')
+  expect(readJson(w, USER_SETTINGS).env.ANTHROPIC_CUSTOM_HEADERS).toBe('X-Corp: a\nx-router-token: tok-1')
+  await run($, 'router', 'uninstall')
+  expect('ANTHROPIC_CUSTOM_HEADERS' in (readJson(w, USER_SETTINGS).env ?? {})).toBe(false)
+})
+
+test('a settings.json that exists but cannot be resolved is not written', async ($, on) => {
+  const w = world(on, { config: null })
+  userSettings(w, { theme: 'dark', env: { ANTHROPIC_BASE_URL: 'https://gw.corp' } })
+  w.unstatable.add(USER_SETTINGS)
+  await start($)
+  const before = w.files.get(USER_SETTINGS)
+  const text = (await run($, 'router', 'setup')).text ?? ''
+  expect(text).toContain(`✗ could not resolve ${USER_SETTINGS} — settings.json unchanged; run /router setup again`)
+  expect(w.files.get(USER_SETTINGS)).toBe(before)
 })

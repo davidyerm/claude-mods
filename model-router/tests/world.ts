@@ -59,6 +59,7 @@ export type World = {
   clock: MockClock
   files: Map<string, string>
   unreadable: Set<string>
+  unstatable: Set<string>
   realPaths: Map<string, string>
   settings: Partial<Record<SettingsSource, Record<string, unknown>>>
   http: Map<string, Route>
@@ -105,6 +106,7 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
     clock: mock.clock(on),
     files: new Map(Object.entries(files)),
     unreadable: new Set(),
+    unstatable: new Set(),
     realPaths: new Map(),
     settings: {},
     http: new Map(),
@@ -134,7 +136,7 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
   // The engine hands fs hooks native paths (backslashes on Windows); w.files keys use /.
   on('fs.read', ($, e) => (w.unreadable.has(slash(e.path)) ? { deny: `EACCES: ${e.path}` } : w.files.has(slash(e.path)) ? { value: w.files.get(slash(e.path))! } : { deny: `ENOENT: ${e.path}` }))
   on('fs.exists', ($, e) => ({ value: w.files.has(slash(e.path)) }))
-  on('fs.stat', ($, e) => (w.files.has(slash(e.path)) ? { value: { kind: 'file', size: 0, mtimeMs: 0, isLink: w.realPaths.has(slash(e.path)), ...(e.resolve ? { realPath: w.realPaths.get(slash(e.path)) ?? slash(e.path) } : {}) } } : { deny: `ENOENT: ${e.path}` }))
+  on('fs.stat', ($, e) => (w.unstatable.has(slash(e.path)) ? { deny: `EIO: ${e.path}` } : w.files.has(slash(e.path)) ? { value: { kind: 'file', size: 0, mtimeMs: 0, isLink: w.realPaths.has(slash(e.path)), ...(e.resolve ? { realPath: w.realPaths.get(slash(e.path)) ?? slash(e.path) } : {}) } } : { deny: `ENOENT: ${e.path}` }))
   on('settings.read', ($, e) => ({ value: (e.source ? w.settings[e.source] : Object.assign({}, ...Object.values(w.settings))) ?? {} }))
   on('http.fetch', ($, e) => {
     const url = new URL(e.url)

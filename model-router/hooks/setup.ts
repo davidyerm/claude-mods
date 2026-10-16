@@ -8,7 +8,7 @@ import type { Monitor } from './monitor'
 import { getPaths } from './paths'
 
 export type BaseUrlSource = SettingsSource | 'os' | 'none'
-export type Backup = { version: 1; baseUrl: string | null; source: BaseUrlSource; customHeaders: string | null; at: string }
+export type Backup = { version: 1; baseUrl: string | null; source: BaseUrlSource; customHeaders: string | null; writtenHeaders?: string | null; at: string }
 export type Base = { value: string | undefined; source: BaseUrlSource }
 export type Settings = Record<string, unknown>
 export type ReadSettings = Settings | null | 'invalid' | 'unreadable'
@@ -124,8 +124,11 @@ export function planSetup(i: {
   return { kind: 'proceed', upstream: (i.base.value ?? 'https://api.anthropic.com').replace(/\/+$/, ''), isUpstreamSaved: true, isBackupWritten: true, rewiredFrom: null }
 }
 
-export function backupOf(base: Base, settings: Settings | null, at: string): Backup {
-  return { version: 1, baseUrl: base.value ?? null, source: base.source, customHeaders: envOf(settings).ANTHROPIC_CUSTOM_HEADERS ?? null, at }
+// writtenHeaders: the header text setup puts in settings.json, minus the token line. When the
+// headers came from the OS env, it is a copy that uninstall must remove again.
+export function backupOf(base: Base, settings: Settings | null, at: string, osHeaders?: string): Backup {
+  const customHeaders = envOf(settings).ANTHROPIC_CUSTOM_HEADERS ?? null
+  return { version: 1, baseUrl: base.value ?? null, source: base.source, customHeaders, writtenHeaders: withoutTokenHeader(customHeaders ?? osHeaders) ?? null, at }
 }
 
 const SOURCES: readonly string[] = ['policy', 'flag', 'local', 'project', 'user', 'os', 'none']
@@ -137,6 +140,7 @@ export function parseBackup(text: string): Backup | null {
     if (v === null || typeof v !== 'object' || Array.isArray(v)) return null
     if (typeof v.source !== 'string' || !SOURCES.includes(v.source)) return null
     if (!isStringOrNull(v.baseUrl) || !isStringOrNull(v.customHeaders)) return null
+    if (v.writtenHeaders !== undefined && !isStringOrNull(v.writtenHeaders)) return null
     return v as unknown as Backup
   } catch {
     return null
@@ -158,7 +162,8 @@ export function restoreSettings(settings: Settings | null, backup: Backup): { te
   if (restoredUrl) env.ANTHROPIC_BASE_URL = restoredUrl
   else delete env.ANTHROPIC_BASE_URL
   const kept = withoutTokenHeader(env.ANTHROPIC_CUSTOM_HEADERS)
-  const isUnchanged = (kept ?? '') === (withoutTokenHeader(backup.customHeaders ?? undefined) ?? '')
+  const written = backup.writtenHeaders !== undefined ? backup.writtenHeaders : backup.customHeaders
+  const isUnchanged = (kept ?? '') === (withoutTokenHeader(written ?? undefined) ?? '')
   const headers = isUnchanged ? backup.customHeaders : (kept ?? null)
   if (headers !== null) env.ANTHROPIC_CUSTOM_HEADERS = headers
   else delete env.ANTHROPIC_CUSTOM_HEADERS
@@ -184,9 +189,16 @@ async function readUserSettings($: EngineInterface, path: string): Promise<ReadS
 }
 
 // A symlinked settings.json stays a link: write where it lands.
-async function writeTarget($: EngineInterface, path: string): Promise<string> {
-  try { return (await $.fs.stat(path, { resolve: true })).realPath ?? path } catch { return path }
+// null when the file is there but cannot be resolved: then nothing is written.
+async function writeTarget($: EngineInterface, path: string): Promise<string | null> {
+  try { return (await $.fs.stat(path, { resolve: true })).realPath ?? path } catch {
+    let isThere = true
+    try { isThere = await $.fs.exists(path) } catch { /* unknown: treat as there */ }
+    return isThere ? null : path
+  }
 }
+
+const unresolvedLine = (path: string, command: 'setup' | 'uninstall') => `✗ could not resolve ${path} — settings.json unchanged; run /router ${command} again`
 
 // null when the write went through; else the failure line.
 async function tryWrite(path: string, unchanged: string, command: 'setup' | 'uninstall', verb: 'write' | 'delete', act: () => Promise<void>): Promise<string | null> {
@@ -233,15 +245,17 @@ export async function runSetup($: EngineInterface, m: Monitor): Promise<string> 
   if (tokenOut.ok !== true || typeof tokenOut.token !== 'string') return fail(`✗ could not create the token: ${tokenOut.error ?? 'unknown error'}`)
   if (typeof tokenOut.warning === 'string') lines.push(`⚠ ${tokenOut.warning}`)
 
+  const osHeaders = await $.env.get('ANTHROPIC_CUSTOM_HEADERS')
   if (plan.isBackupWritten) {
-    const backup = backupOf(base, safe, new Date(await $.clock.now()).toISOString())
+    const backup = backupOf(base, safe, new Date(await $.clock.now()).toISOString(), osHeaders)
     const err = await tryWrite(paths.backup, `${paths.userSettings} is unchanged`, 'setup', 'write', () => writeFile($, paths.backup, `${JSON.stringify(backup, null, 2)}\n`))
     if (err) return fail(err)
     lines.push(`✓ original values backed up to ${paths.backup}`)
   }
 
   const target = await writeTarget($, paths.userSettings)
-  const text = mergeSettings(safe, url, tokenOut.token, await $.env.get('ANTHROPIC_CUSTOM_HEADERS'))
+  if (target === null) return fail(unresolvedLine(paths.userSettings, 'setup'))
+  const text = mergeSettings(safe, url, tokenOut.token, osHeaders)
   const err = await tryWrite(target, `${paths.userSettings} is unchanged`, 'setup', 'write', () => writeFile($, target, text))
   if (err) return fail(err)
   lines.push(`✓ ${paths.userSettings}: env.ANTHROPIC_BASE_URL = ${url}; x-router-token added to env.ANTHROPIC_CUSTOM_HEADERS`)
@@ -270,6 +284,7 @@ export async function runUninstall($: EngineInterface): Promise<string> {
 
   const restored = restoreSettings(settings, backup)
   const target = await writeTarget($, paths.userSettings)
+  if (target === null) return unresolvedLine(paths.userSettings, 'uninstall')
   const err = await tryWrite(target, `${paths.userSettings} and the backup are unchanged`, 'uninstall', 'write', () => writeFile($, target, restored.text))
   if (err) return err
   const delErr = await tryWrite(paths.backup, `${paths.userSettings} is restored, the backup is still there`, 'uninstall', 'delete', () => deleteFile($, paths.backup))
