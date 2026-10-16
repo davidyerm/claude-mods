@@ -148,6 +148,7 @@ export async function runRouterCommand($: EngineInterface, m: Monitor, cmd: Rout
     case 'restart': {
       const r = await ensureRouter($, config.port, { force: true })
       if (r.ok) { m.status = r.status; m.lastSeq = r.status.eventsSeq; m.isDown = false }
+      else { m.isDown = true; m.status = null }
       await refresh($, m)
       return { text: r.ok ? `model-router restarted (pid ${r.status.pid}). Learned limits start empty.` : `Restart failed: ${r.reason}` }
     }

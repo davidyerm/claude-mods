@@ -26,6 +26,7 @@ export const register: Register = on => {
       m.isDown = false
     } else {
       m.isDown = true
+      m.status = null
       $.ui.log(`model-router: ${ensured.reason}`, { to: 'debug' })
     }
     // $.state outlives a hot reload; the default applies once per session.

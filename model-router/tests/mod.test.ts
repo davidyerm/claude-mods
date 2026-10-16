@@ -170,3 +170,14 @@ test('the 10 s health timer shows DOWN when the respawn fails', async ($, on) =>
   expect(w.toasts).not.toContain('model-router restarted')
   expect(w.statusLines.at(-1)).toBe(DOWN)
 })
+
+test('session start: a failed launch on a reload drops the old status, so the pick is not routed', async ($, on) => {
+  const w = world(on, { config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-chat' } })
+  await start($)
+  down(w)
+  w.tool = sub => (sub === 'start' ? { ok: false, error: 'node not found' } : undefined)
+  await start($)
+  expect(w.statusLines.at(-1)).toBe(DOWN)
+  await step($)
+  expect(w.stepModels.at(-1)).toBe('claude-opus-5-5')
+})

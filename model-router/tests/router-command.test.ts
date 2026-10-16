@@ -117,3 +117,14 @@ test('/router forget sends the token; /router restart forces a new router', asyn
   expect((await run($, 'router', 'restart')).text).toBe('model-router restarted (pid 42). Learned limits start empty.')
   expect(w.runs.at(-1)!.argv.slice(2)).toEqual(['start', '--force'])
 })
+
+test('a failed /router restart shows DOWN and stops routing the pick', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await run($, 'router', 'DS/ds-chat')
+  w.tool = sub => (sub === 'start' ? { ok: false, error: 'node not found' } : undefined)
+  expect((await run($, 'router', 'restart')).text).toStartWith('Restart failed: ')
+  expect(w.statusLines.at(-1)).toBe('model-router DOWN — /router doctor')
+  await step($)
+  expect(w.stepModels.at(-1)).toBe('claude-opus-5-5')
+})
