@@ -1,6 +1,14 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import http from 'node:http'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { createRouter } from '../lib/server.mjs'
+
+export { waitFor } from '../lib/client.mjs'
+
+const CLI = fileURLToPath(new URL('../router.mjs', import.meta.url))
 
 export function tempHome() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'model-router-test-'))
@@ -10,20 +18,6 @@ export function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value, null, 2))
 }
-
-// Polls fn until it returns a truthy value; resolves that value, rejects on timeout.
-export async function waitFor(fn, timeoutMs = 3000, everyMs = 20) {
-  const until = Date.now() + timeoutMs
-  for (;;) {
-    const value = await fn()
-    if (value) return value
-    if (Date.now() > until) throw new Error(`waitFor timed out after ${timeoutMs} ms`)
-    await new Promise(r => setTimeout(r, everyMs))
-  }
-}
-
-import http from 'node:http'
-import { createRouter } from '../lib/server.mjs'
 
 export function makeHome({ config, token = 'test-token' } = {}) {
   const home = tempHome()
@@ -59,4 +53,15 @@ export function request(url, { method = 'POST', path: p = '/v1/messages', header
     req.on('error', error => resolve({ status: 0, error, text, isAborted: true }))
     req.end(body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body))
   })
+}
+
+export function spawnCli(home, env = {}) {
+  const base = { ...process.env }
+  delete base.NODE_EXTRA_CA_CERTS
+  const child = spawn(process.execPath, [CLI], { env: { ...base, MODEL_ROUTER_HOME: home, ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
+  let out = ''
+  child.stdout.on('data', c => { out += c })
+  child.stderr.on('data', c => { out += c })
+  const exited = new Promise(r => child.on('exit', code => r(code)))
+  return { child, output: () => out, exited }
 }
