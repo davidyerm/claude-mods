@@ -47,7 +47,8 @@ http.createServer((req, res) => {
     for (const k of ['authorization', 'x-api-key']) if (h[k]) h[k] = '<redacted>'
     log({ method: req.method, path: url.pathname, model: json.model, stream: json.stream, maxTokens: json.max_tokens,
           systemHead: JSON.stringify(json.system ?? '').slice(0, 160), nMessages: json.messages?.length, nTools: json.tools?.length,
-          beta: h['anthropic-beta'], bodyKeys: Object.keys(json), thinking: json.thinking, outputConfig: json.output_config, lastUser: JSON.stringify(json.messages?.at(-1)?.content ?? '').slice(-200) })
+          beta: h['anthropic-beta'],
+          session: h['x-claude-code-session-id'], contextManagement: json.context_management, rawModel: json.model, bodyKeys: Object.keys(json), thinking: json.thinking, outputConfig: json.output_config, lastUser: JSON.stringify(json.messages?.at(-1)?.content ?? '').slice(-200) })
     if (url.pathname.endsWith('/count_tokens')) return res.end(JSON.stringify({ input_tokens: 10 }))
     if (!url.pathname.endsWith('/messages')) { res.writeHead(404); return res.end('{}') }
     const txt = JSON.stringify(json.messages ?? [])
