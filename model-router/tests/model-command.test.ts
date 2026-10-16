@@ -70,9 +70,37 @@ test('off: bare /model is the stock one', OFF, async ($, on) => {
 })
 
 test('off: /model <routed name> still switches, with a tip', OFF, async ($, on) => {
-  world(on)
+  const w = world(on)
   await start($)
   expect((await run($, 'model', 'DS/ds-reasoner')).text).toBe('Main model: [DS] ds-reasoner\ntip: use /router')
+  await step($)
+  expect(w.stepModels.at(-1)).toBe('router:DS/ds-reasoner#claude-opus-5-5')
+})
+
+test('off: an ambiguous bare id lists the candidates', OFF, async ($, on) => {
+  world(on)
+  await start($)
+  expect((await run($, 'model', 'ds-chat')).text).toBe(ambiguousText('ds-chat', ['DS/ds-chat', 'OR/ds-chat']))
+})
+
+test('off: anything else clears the pick and reaches the built-in /model', OFF, async ($, on) => {
+  const w = world(on)
+  await start($)
+  await run($, 'router', 'DS/ds-chat')
+  expect((await run($, 'model', 'sonnet')).text).toBe('built-in /model sonnet')
+  expect(w.commands).toEqual([{ command: 'model', args: 'sonnet', origin: 'composer' }])
+  await step($)
+  expect(w.stepModels.at(-1)).toBe('claude-opus-5-5')
+})
+
+test('a plugin-origin run with args goes to the built-in unchanged and leaves the pick', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await run($, 'router', 'DS/ds-chat')
+  expect((await fromPlugin($, 'sonnet')).text).toBe('built-in /model sonnet')
+  expect(w.commands).toEqual([{ command: 'model', args: 'sonnet', origin: 'plugin' }])
+  await step($)
+  expect(w.stepModels.at(-1)).toBe('router:DS/ds-chat#claude-opus-5-5')
 })
 
 test('a failing hook falls back to the built-in /model', async ($, on) => {
