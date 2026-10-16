@@ -105,3 +105,15 @@ test('probe results read as advice', () => {
   expect(probeSummary({ ok: false, kind: 'tls', text: 'tls: SELF_SIGNED_CERT_IN_CHAIN' }, 'm')).toBe('✗ certificate not trusted (tls: SELF_SIGNED_CERT_IN_CHAIN). See /router doctor.')
   expect(probeSummary({ ok: false, kind: 'connect', text: 'connect: ENOTFOUND' }, 'm')).toBe('✗ connect: ENOTFOUND')
 })
+
+test('duplicate model IDs are dropped, first-seen order kept', async ($, on) => {
+  const w = world(on)
+  await open($)
+  await enter($, 'add-name', 'Dup')
+  await enter($, 'add-baseUrl', 'https://dup.example')
+  await enter($, 'add-key', 'DUP_KEY')
+  await enter($, 'add-models', 'm1, m1 m2')
+  await draw($)
+  await $.ui.select({ plugin: 'model-router', key: 'add-finish', value: 'save' })
+  expect(readJson(w, CONFIG).providers.at(-1).models).toEqual([{ id: 'm1' }, { id: 'm2' }])
+})

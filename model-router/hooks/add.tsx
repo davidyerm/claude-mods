@@ -24,7 +24,7 @@ const PROMPTS: Record<Exclude<WizardStep, 'test'>, string> = {
 }
 
 const isEnvName = (value: string) => /^[A-Z_][A-Z0-9_]*$/.test(value)
-const modelIds = (text: string) => text.split(/[\s,]+/).filter(Boolean)
+const modelIds = (text: string) => [...new Set(text.split(/[\s,]+/).filter(Boolean))]
 
 export function providerOf(d: Pick<Draft, 'name' | 'baseUrl' | 'key' | 'models'>): RawProvider {
   return {
