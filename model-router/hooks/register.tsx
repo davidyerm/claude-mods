@@ -65,7 +65,8 @@ export const register: Register = (on, options) => {
     if (match.kind === 'ambiguous') return { text: ambiguousText(args, match.refs) }
     await clearPick($)
     const result = await next(e)
-    await refresh($, m)
+    // A redraw failure after the built-in ran must not reach the .catch and replay /model.
+    await refresh($, m).catch(() => {})
     return result
   }).catch(($, e, next) => next(e))
 }
