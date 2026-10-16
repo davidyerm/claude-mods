@@ -73,10 +73,12 @@ The limits mod checks `GET /_router/status` at session start.
 
 The message depends on the cause: not installed → `/plugin install model-router@<marketplace>`; installed but not set up → `/router setup`; set up but down → `/router doctor`. Telling "not installed" from "not set up" needs a plugin-list or `enabledPlugins` read, **unverified**; fall back to listing both steps. Marketplace descriptions plus a README "Which do I need?" table. The router's `/router doctor` mentions model-limits once as optional.
 
-### OPEN QUESTION for the user (asked 2026-10-15; the user will answer later, do not forget)
+### ANSWERED: Claude-model limits need (asked 2026-10-15, answered 2026-10-16)
 
 > For the org's **Claude** models, is the need for the limits mod **context** (gateway rejects/caps long prompts), **output** (gateway caps `max_tokens`), or **both**?
 > If it's mostly context, the limits mod barely needs the router.
+
+**Answer (2026-10-16):** for now, assume **both**. model-limits handles context windows (compaction, in-engine) *and* output caps (policy executed by the router, including on Claude pass-through traffic).
 
 ### Pending design notes not yet presented as sections (from discussion, to fold into Section 3)
 

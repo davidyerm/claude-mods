@@ -439,7 +439,7 @@ Each one, if it fails, changes the design at the noted point.
   - **Applied limit:** `max_tokens = min(requested, learned, policy)`. Every term is an upper bound, so no tiebreak is needed.
 - Any persistence of its own (e.g. `~/.claude/model-limits/`) is its own decision. The router persists no limits.
 - **Without the router:** context compaction only. It tells users about the router when a rule needs it (inline on rule creation, one toast per session if rules are inactive, `/limits status`).
-- **Open question for the user:** is the org's need for Claude models context, output, or both?
+- **Scope for Claude models (answered 2026-10-16):** assume **both** context and output. Context is handled in-engine by compaction. Output caps go through the router's policy, applied to pass-through traffic, which is why `POST /_router/policy` must cover Claude models and not only routed ones.
 - Gets its own brainstorm, spec and plan.
 
 ## 12. Packaging
