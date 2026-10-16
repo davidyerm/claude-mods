@@ -34,6 +34,16 @@ export function allRefs(config) {
   return config.providers.flatMap(p => p.models.map(m => `${p.name}/${m.id}`))
 }
 
+// JSON.parse's message quotes a snippet of the input, which may hold a key.
+// Report only the location, never the message text.
+export function jsonErrorText(message) {
+  const pos = /position (\d+)/.exec(message)
+  if (pos) return `invalid JSON at position ${pos[1]}`
+  const lc = /line (\d+) column (\d+)/.exec(message)
+  if (lc) return `invalid JSON at line ${lc[1]} column ${lc[2]}`
+  return 'invalid JSON'
+}
+
 export function formatErrors(errors) {
   return errors.map(e => (e.path ? `${e.path}: ${e.message}` : e.message)).join('; ')
 }

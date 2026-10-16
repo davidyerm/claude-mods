@@ -12,5 +12,6 @@ export declare function parseRef(ref: string): { provider: string; model: string
 export declare function isLoopbackHost(hostname: string): boolean
 export declare function checkBaseUrl(value: unknown): string | null
 export declare function allRefs(config: Config): string[]
+export declare function jsonErrorText(message: string): string
 export declare function formatErrors(errors: readonly ConfigError[]): string
 export declare function validateConfig(raw: unknown): ValidateResult

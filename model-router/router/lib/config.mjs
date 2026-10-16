@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { validateConfig, formatErrors } from './schema.mjs'
+import { validateConfig, formatErrors, jsonErrorText } from './schema.mjs'
 
 export function routerHome(env = process.env) {
   return env.MODEL_ROUTER_HOME || env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
@@ -18,16 +18,6 @@ export function routerPaths(home) {
     log: path.join(stateDir, 'router.log'),
     out: path.join(stateDir, 'router.out'),
   }
-}
-
-// Node's JSON.parse messages quote a snippet of the input, which may hold a key.
-// Report only the location, never the message text.
-function jsonErrorText(message) {
-  const pos = /position (\d+)/.exec(message)
-  if (pos) return `invalid JSON at position ${pos[1]}`
-  const lc = /line (\d+) column (\d+)/.exec(message)
-  if (lc) return `invalid JSON at line ${lc[1]} column ${lc[2]}`
-  return 'invalid JSON'
 }
 
 export function readConfigFile(file) {

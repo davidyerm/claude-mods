@@ -1,5 +1,5 @@
 import type { EngineInterface } from 'claude-code'
-import { allRefs, formatErrors, parseRef, validateConfig } from '../router/lib/schema.mjs'
+import { allRefs, formatErrors, jsonErrorText, parseRef, validateConfig } from '../router/lib/schema.mjs'
 import type { Config, ConfigError } from '../router/lib/schema.mjs'
 import { readText, writeFile } from './host'
 import type { Paths } from './paths'
@@ -18,16 +18,6 @@ export type Loaded = { raw: RawConfig | null; config: Config; errors: ConfigErro
 export type Updated = { ok: true; text: string; config: Config } | { ok: false; message: string }
 
 const EMPTY = (validateConfig({}) as { ok: true; config: Config }).config
-
-// JSON.parse's message quotes a snippet of the input, which could hold an apiKey.
-// Report only the location, never the message text (same rule as router/lib/config.mjs).
-function jsonErrorText(message: string): string {
-  const pos = /position (\d+)/.exec(message)
-  if (pos) return `invalid JSON at position ${pos[1]}`
-  const lc = /line (\d+) column (\d+)/.exec(message)
-  if (lc) return `invalid JSON at line ${lc[1]} column ${lc[2]}`
-  return 'invalid JSON'
-}
 
 // Pure core of loadConfig: the file's text (null when the file is missing).
 export function parseConfigText(text: string | null): Loaded {
