@@ -6478,7 +6478,7 @@ git commit -m "test: headless end-to-end scenarios through the real router"
 
 **Interfaces:**
 - Consumes: everything.
-- Produces: marketplace `llm-mods` listing `rtl-mode` and `model-router`; install line `/plugin install model-router@llm-mods`. **The marketplace name `llm-mods` is a choice this plan makes; confirm it with the human before committing** (renaming it later breaks installs).
+- Produces: marketplace `llm-mods` listing `rtl-mode` and `model-router`; install line `/plugin install model-router@llm-mods`. **`llm-mods` is a working name, not final.** It is written in exactly two kinds of places: the `name` field of `.claude-plugin/marketplace.json`, and the `@llm-mods` install lines in the READMEs. No code, test or plugin manifest names it (plugins never refer to their marketplace), so a rename is the one-step recipe in the release checklist.
 
 - [ ] **Step 1: Write the root marketplace and remove rtl-mode's**
 
@@ -6653,11 +6653,17 @@ Spec §10.5. Run on Windows with the real corporate gateway and one real provide
 - [ ] Capture the real provider's `max_tokens` error text and add it to `router/test/fixtures/limit-errors.json`; run the router tests.
 - [ ] If Claude Code was updated: refresh `PROBE_BETA` / `PROBE_CONTEXT_MANAGEMENT` in `router/lib/probe-request.mjs` with the capture of Task 1.
 - [ ] Bump `version` in `.claude-plugin/plugin.json` **and** `router/version.mjs` together.
+- [ ] Marketplace name final? `llm-mods` is a working name. To rename it to `<new>`: set `name` in the repo root's `.claude-plugin/marketplace.json`, then replace every `@llm-mods` and `` `llm-mods` `` in `README.md`, `rtl-mode/README.md` (if any) and `model-router/README.md` (`grep -rn "llm-mods" --include=*.md --include=*.json .` must show only the new name afterwards). On a machine that already installed from it: `/plugin marketplace remove llm-mods`, `/plugin marketplace add <repo folder>`, then `/plugin install model-router@<new>` (and `rtl-mode@<new>`). Do this before anyone else installs it.
 ```
 
-- [ ] **Step 5: Confirm the marketplace name, then commit**
+- [ ] **Step 5: Check the name is only where the rename recipe expects, then commit**
 
-Ask the human: "The root marketplace is named `llm-mods`, so the install line is `/plugin install model-router@llm-mods`. Keep that name?" Apply their answer to all three READMEs and the marketplace file, then:
+```bash
+cd /c/dev/llm/mods
+grep -rn "llm-mods" --exclude-dir=.git --exclude-dir=docs .
+```
+
+Expected: only `.claude-plugin/marketplace.json` and the README install lines. Then:
 
 ```bash
 cd /c/dev/llm/mods
