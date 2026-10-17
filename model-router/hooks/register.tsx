@@ -1,7 +1,7 @@
 import type { Register } from 'claude-code'
 import { parseRouterArgs, runRouterCommand } from './commands'
 import { registerWizard } from './add'
-import { ambiguousText, display, findModel, loadConfig, portOf } from './config'
+import { ambiguousText, findModel, loadConfig, pickedText, portOf, saveDefaultMainModel, unsavedClearText } from './config'
 import { ensureRouter } from './lifecycle'
 import { health, newMonitor, refresh, reprobe, tick } from './monitor'
 import { getPaths } from './paths'
@@ -62,17 +62,23 @@ export const register: Register = (on, options) => {
     if (e.origin.kind === 'plugin' && e.origin.name === 'model-router') return next(e)
     const args = e.args.trim()
     if (args === '') return takeOver ? openPicker($, m, 'model') : next(e)
-    const { config } = await loadConfig($, await getPaths($))
+    const paths = await getPaths($)
+    const { config } = await loadConfig($, paths)
     const match = findModel(config, args)
     if (match.kind === 'one') {
       if (!m.isWired) return { text: NOT_ACTIVE_TEXT }
       await setPick($, match.ref)
+      // A /model pick is also the default for new sessions, as the built-in's is.
+      const saveError = await saveDefaultMainModel($, paths, match.ref)
       await reprobe($, m)
       await refresh($, m)
-      return { text: `Main model: ${display(match.ref)}${takeOver ? '' : '\ntip: use /router'}` }
+      return { text: `${pickedText(match.ref, saveError)}${takeOver ? '' : '\ntip: use /router'}` }
     }
     if (match.kind === 'ambiguous') return { text: ambiguousText(args, match.refs) }
     await clearPick($)
+    // A Claude pick: new sessions must not start routed against it.
+    const clearError = unsavedClearText(await saveDefaultMainModel($, paths, null))
+    if (clearError) await $.ui.toast(clearError)
     const result = await next(e)
     // A redraw failure after the built-in ran must not reach the .catch and replay /model.
     await refresh($, m).catch(() => {})

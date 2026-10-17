@@ -75,7 +75,7 @@ test('a pick removed from config is cleared with a toast', () => {
 
 test('a Claude model picked in the built-in picker clears the pick', () => {
   expect(checkPick({ pick: 'DS/ds-chat', refs: ['DS/ds-chat'], seen: 'claude-opus-5-5', model: 'claude-sonnet-5-5' }))
-    .toEqual({ clear: true, toast: 'Main model back to Claude (claude-sonnet-5-5 picked in /model)' })
+    .toEqual({ clear: true, toast: 'Main model back to Claude (claude-sonnet-5-5 picked in /model)', isBuiltinPick: true })
 })
 
 test('a valid pick, an unchanged model or no pick is kept', () => {

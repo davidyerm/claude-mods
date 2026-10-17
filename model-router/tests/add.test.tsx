@@ -129,7 +129,7 @@ test('/router add, save, then /model New/m1: the next step routes with no clock 
   const probes = w.fetches.filter(f => f.url.endsWith('/_router/status')).length
   await $.ui.select({ plugin: 'model-router', key: 'add-finish', value: 'save' })
   expect(w.fetches.filter(f => f.url.endsWith('/_router/status')).length).toBe(probes + 1)
-  expect((await run($, 'model', 'New/m1')).text).toBe('Main model: [New] m1')
+  expect((await run($, 'model', 'New/m1')).text).toBe('Main model: [New] m1 (also the default for new sessions)')
   await step($)
   expect(w.stepModels).toEqual(['router:New/m1#claude-opus-5-5'])
 })

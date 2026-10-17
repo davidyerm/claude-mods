@@ -4,7 +4,7 @@ import { allRefs, FAMILIES, parseRef } from '../router/lib/schema.mjs'
 import type { Config } from '../router/lib/schema.mjs'
 import type { PickerEntry, PickerState } from '../types'
 import type { RouterStatus } from './client'
-import { display, loadConfig, updateConfig } from './config'
+import { display, loadConfig, pickedText, saveDefaultMainModel, unsavedClearText, updateConfig } from './config'
 import { refresh, reprobe } from './monitor'
 import type { Monitor } from './monitor'
 import { getPaths } from './paths'
@@ -196,6 +196,11 @@ export async function choose($: EngineInterface, m: Monitor, value: string): Pro
   switch (kind) {
     case 'claude': {
       await clearPick($)
+      // /model mode: the Claude pick is the default again (router mode is session-only).
+      if (state.mode === 'model') {
+        const clearError = unsavedClearText(await saveDefaultMainModel($, paths, null))
+        if (clearError) await $.ui.toast(clearError)
+      }
       await closePicker($)
       await refresh($, m)
       if (rest !== (await $.session.model())) await runCommand($, 'model', rest)
@@ -203,10 +208,12 @@ export async function choose($: EngineInterface, m: Monitor, value: string): Pro
     }
     case 'routed': {
       await setPick($, rest)
+      // /model mode: also the default for new sessions; router mode: this session only.
+      const text = state.mode === 'model' ? pickedText(rest, await saveDefaultMainModel($, paths, rest)) : `Main model: ${display(rest)}`
       await closePicker($)
       await reprobe($, m)
       await refresh($, m)
-      await $.ui.toast(`Main model: ${display(rest)}`)
+      await $.ui.toast(text)
       return
     }
     case 'builtin': {

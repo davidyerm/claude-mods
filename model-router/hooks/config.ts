@@ -62,6 +62,31 @@ export async function updateConfig($: EngineInterface, paths: Paths, mutate: (ra
   return { ok: true, config: out.config }
 }
 
+// /model picks persist like the built-in's (2026-10-17): a routed pick becomes the
+// default for new sessions, a Claude pick removes it. Null when saved (or nothing
+// to remove), else the reason; it never throws, so a pick never fails on a save.
+export async function saveDefaultMainModel($: EngineInterface, paths: Paths, ref: string | null): Promise<string | null> {
+  try {
+    const { raw } = await loadConfig($, paths)
+    if ((raw?.defaultMainModel ?? null) === ref) return null
+    const r = await updateConfig($, paths, next => { if (ref === null) delete next.defaultMainModel; else next.defaultMainModel = ref })
+    return r.ok ? null : r.message
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err)
+  }
+}
+
+// Pure: what a /model pick of a routed model says, given saveDefaultMainModel's answer.
+export function pickedText(ref: string, saveError: string | null): string {
+  return saveError === null
+    ? `Main model: ${display(ref)} (also the default for new sessions)`
+    : `Main model: ${display(ref)} (could not save as default: ${saveError})`
+}
+
+// Pure: the toast for a default that could not be removed, or null.
+export const unsavedClearText = (saveError: string | null): string | null =>
+  saveError === null ? null : `Could not remove the default main model: ${saveError}`
+
 export function display(ref: string): string {
   const r = parseRef(ref)
   return r ? `[${r.provider}] ${r.model}` : ref

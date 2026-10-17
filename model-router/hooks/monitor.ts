@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 import { allRefs } from '../router/lib/schema.mjs'
 import { getEvents, probeRouter } from './client'
 import type { Probe, RouterEvent, RouterStatus } from './client'
-import { display, loadConfig, portOf } from './config'
+import { display, loadConfig, portOf, saveDefaultMainModel, unsavedClearText } from './config'
 import { ensureRouter } from './lifecycle'
 import type { Ensure } from './lifecycle'
 import { getPaths } from './paths'
@@ -28,13 +28,15 @@ export function toastsFor(events: RouterEvent[], routerLastSeq: number, cursor: 
   return { toasts, lastSeq }
 }
 
-export type PickCheck = 'keep' | { clear: true; toast: string }
+// isBuiltinPick: a Claude model was picked in the built-in /model, which also
+// removes the default for new sessions.
+export type PickCheck = 'keep' | { clear: true; toast: string; isBuiltinPick?: true }
 
 // Pure: is the session's pick still valid?
 export function checkPick({ pick, refs, seen, model }: { pick: string | null; refs: string[]; seen: string | null; model: string }): PickCheck {
   if (pick === null) return 'keep'
   if (!refs.includes(pick)) return { clear: true, toast: `${display(pick)} was removed — main model back to Claude` }
-  if (seen !== null && model !== seen) return { clear: true, toast: `Main model back to Claude (${model} picked in /model)` }
+  if (seen !== null && model !== seen) return { clear: true, toast: `Main model back to Claude (${model} picked in /model)`, isBuiltinPick: true }
   return 'keep'
 }
 
@@ -73,11 +75,16 @@ export async function tick($: EngineInterface, m: Monitor): Promise<void> {
   }
   const pick = await getPick($)
   if (pick !== null) {
-    const { config } = await loadConfig($, await getPaths($))
+    const paths = await getPaths($)
+    const { config } = await loadConfig($, paths)
     const check = checkPick({ pick, refs: allRefs(config), seen: await getSeenModel($), model: await $.session.model() })
     if (check !== 'keep') {
       await clearPick($)
       $.ui.toast(check.toast)
+      if (check.isBuiltinPick) {
+        const clearError = unsavedClearText(await saveDefaultMainModel($, paths, null))
+        if (clearError) $.ui.toast(clearError)
+      }
     }
   }
   await refresh($, m)
