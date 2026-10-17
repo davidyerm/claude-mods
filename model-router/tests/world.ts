@@ -168,6 +168,8 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
   on('ui.log', ($, e) => { w.logs.push(e.text); return { value: undefined } })
   on('ui.open', ($, e) => { w.opened.push(e.id); return { value: { isPlaced: true } } })
   on('ui.close', ($, e) => { w.closed.push(e.id); return { value: undefined } })
+  // The focus ring: the engine lands it where the chain left it.
+  on('ui.focus', () => ({}))
   on('command.register', ($, e) => { w.registered.push(e.name); return { value: { command: e.name } } })
   on('session.id', () => ({ value: w.sessionId }))
   on('session.model', () => (w.failSessionModel ? { deny: 'session.model failed' } : { value: w.model }))
