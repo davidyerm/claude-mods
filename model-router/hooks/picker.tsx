@@ -8,7 +8,7 @@ import { clearDefaultMainModel, display, loadConfig, pickedText, saveDefaultMain
 import { refresh, reprobe } from './monitor'
 import type { Monitor } from './monitor'
 import { getPaths } from './paths'
-import { clearPick, getPick, NOT_ACTIVE_TEXT, providerState, setPick, setWatchedModel } from './pick'
+import { clearPick, getPick, NOT_ACTIVE_TEXT, expectOwnModelChange, providerState, setPick } from './pick'
 
 export const PICKER_PANE = 'model-router-picker'
 // read/update on this atom stay in this file (the engine allows them only beside the atom).
@@ -173,9 +173,17 @@ async function setCursor($: EngineInterface, cursor: string): Promise<void> {
 // Put the ring on another row: the cursor moves first, so a row outside the window
 // is drawn, then the ring is asked to follow. The ask is not awaited: the engine
 // settles one move at a time, and this one may start inside a ui.focus hook.
-async function stepTo($: EngineInterface, cursor: string): Promise<void> {
+// If the ring does not follow, the cursor goes back, so the mark stays on the focused row.
+async function stepTo($: EngineInterface, cursor: string, previous: string | undefined): Promise<void> {
   await setCursor($, cursor)
-  void $.ui.focus({ requestId: PICKER_PANE, key: cursor }).catch(() => ({}))
+  void $.ui.focus({ requestId: PICKER_PANE, key: cursor })
+    .then(r => (r.deny === undefined ? undefined : Promise.reject(new Error(r.deny))))
+    .catch(() => revertCursor($, cursor, previous))
+}
+
+async function revertCursor($: EngineInterface, cursor: string, previous: string | undefined): Promise<void> {
+  if (previous === undefined) return
+  await update($, pickerAtom, (s): PickerState => s && (s.cursor === cursor ? { ...s, cursor: previous } : s))
 }
 
 async function runCommand($: EngineInterface, command: string, args = ''): Promise<void> {
@@ -203,9 +211,11 @@ export async function choose($: EngineInterface, m: Monitor, value: string): Pro
       if (state.mode === 'model') await clearDefaultMainModel($, paths)
       await closePicker($)
       await refresh($, m)
-      if (rest !== (await $.session.model())) await runCommand($, 'model', rest)
-      // The mod made this change itself: the tick must not read it as a built-in pick.
-      await setWatchedModel($, await $.session.model())
+      if (rest !== (await $.session.model())) {
+        // The mod makes this change itself: the tick must not read it as a built-in pick.
+        await expectOwnModelChange($)
+        await runCommand($, 'model', rest)
+      }
       return
     }
     case 'routed': {
@@ -293,7 +303,7 @@ export function registerPicker(on: On, m: Monitor): void {
     drawn = shown.flatMap(r => (r.kind === 'entry' ? [r.value] : []))
     // Descriptions line up after the longest label that has one (the actions have none).
     const width = Math.max(0, ...rows.map(r => (r.kind === 'entry' && r.description ? r.label.length : 0)))
-    const step = (target: string | undefined) => { if (target !== undefined) void stepTo($, target) }
+    const step = (target: string | undefined) => { if (target !== undefined) void stepTo($, target, cursor) }
     const values = state.entries.map(x => x.value)
     return (
       <Box flexDirection="column">
@@ -341,7 +351,7 @@ export function registerPicker(on: On, m: Monitor): void {
       if (r.deny === undefined && e.origin.kind === 'person') await setCursor($, plan.cursor)
       return r
     }
-    await stepTo($, plan.cursor)
+    await stepTo($, plan.cursor, cursorOf(state))
     return {}
   }).catch(($, e, next) => next(e))
 }

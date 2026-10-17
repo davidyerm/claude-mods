@@ -13,7 +13,7 @@
 
 - Branch `model-router`, PR https://github.com/davidyerm/claude-mods/pull/1. The PR is not merged.
 - The plugin is fully built and passes on the dev machine:
-  - router 112 tests, mod 212, rtl-mode 12
+  - router 112 tests, mod 218, rtl-mode 12
   - `tsc` clean
   - headless e2e 3/3
   - `claude plugin validate` passes
@@ -104,13 +104,13 @@ The picker was rebuilt on 2026-10-17 to imitate the built-in `/model` picker. Th
 1. In a **tall** terminal (40+ rows), type `/model`. Check:
    - the title "Select model", the dim subtitle, numbered rows, and the footer `Enter to confirm · Esc to exit · manage: /router`;
    - `✔` and `❯` on the current model.
-2. Press ↓ a few times. `❯` should follow the highlighted row. At the last row ↓ should wrap to the first; at the first row ↑ should wrap to the last.
+2. Press ↓ a few times. `❯` should follow the highlighted row. At the last row ↓ should wrap to the first; at the first row ↑ should wrap to the last. After a wrap and after a scroll, press Enter: the row chosen must be the one marked ❯. (Then undo the pick: `/router claude`, or `/model sonnet` and the step 5 check if it was a `/model` routed pick.)
 3. Press Esc. The pane closes and nothing changes.
 4. Type `/model` again and press a digit, e.g. `2`. That row should be chosen at once.
 5. Type `/model`, move to a routed row and press Enter. The toast should say `(also the default for new sessions)`, and `~/.claude/model-router.json` now holds `"defaultMainModel"`. Then type `/model sonnet` to undo it. A toast should say `Default for new sessions: back to Claude (removed [P] m)`.
    - Check: `defaultMainModel` is gone from `~/.claude/model-router.json`. If it was set before this check, put it back with `/router default <model>`.
 6. With a disabled row (for example a provider whose key is unset, so it is "unavailable"), check that it is dim, keeps its reason, and that choosing it only toasts the reason.
-7. Shrink the terminal to about 12 rows and type `/router`. Check that the heading and the footer still show, and `↓ more` appears. Moving down past the last visible row should scroll the window and show `↑ more`. Digits only reach rows that are visible: a digit for a row scrolled out of the window does nothing.
+7. Shrink the terminal to about 12 rows and type `/router`. Check that the heading and the footer still show, and `↓ more` appears. Moving down past the last visible row should scroll the window and show `↑ more`. Digits only reach rows that are visible: a digit for a row scrolled out of the window does nothing. After a wrap and after a scroll, press Enter: the row chosen must be the one marked ❯.
 8. Note anything that differs: the engine draws `1:` (not `1.`) before each row; rows past 9 show a dim `10: ` and have no digit key.
 
 Record the result as row "C2 picker" in `docs/model-router-verification.md`. If the arrows only scroll the pane and don't move between rows, note it: the fallback is digit keys plus Tab, and the fix is to draw the rows in a `Client` surface module.

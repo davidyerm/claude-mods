@@ -34,6 +34,27 @@ export async function setWatchedModel($: EngineInterface, model: string): Promis
   await update($, watchedModelAtom, () => model)
 }
 
+// A one-shot guard set just before the mod runs /model itself: the first model
+// change the tick sees before the deadline is the mod's own, not a built-in pick.
+export const OWN_CHANGE_MS = 5_000
+export const ownChangeAtom = atom({ plugin: 'model-router', key: 'ownChangeUntil' } as const, null as number | null)
+
+export async function expectOwnModelChange($: EngineInterface): Promise<void> {
+  const until = (await $.clock.now()) + OWN_CHANGE_MS
+  await update($, ownChangeAtom, () => until)
+}
+
+// True when the guard was active (and is now spent); an expired guard is dropped.
+export async function takeOwnModelChange($: EngineInterface): Promise<boolean> {
+  const until = await read($, ownChangeAtom)
+  if (until === null) return false
+  await update($, ownChangeAtom, () => null)
+  return isGuardActive(until, await $.clock.now())
+}
+
+// Pure: is a guard set until `until` still active at `now`?
+export const isGuardActive = (until: number | null, now: number): boolean => until !== null && now <= until
+
 export async function isStarted($: EngineInterface): Promise<boolean> {
   return read($, startedAtom)
 }

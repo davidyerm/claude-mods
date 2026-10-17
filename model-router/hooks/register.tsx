@@ -7,7 +7,7 @@ import { health, newMonitor, refresh, reprobe, tick } from './monitor'
 import { getPaths } from './paths'
 import { openPicker, registerPicker } from './picker'
 import { isWiredTo } from './client'
-import { clearPick, getPick, isRoutable, isStarted, markStarted, NOT_ACTIVE_TEXT, setPick, setWatchedModel, wireModel } from './pick'
+import { clearPick, getPick, isRoutable, isStarted, markStarted, NOT_ACTIVE_TEXT, expectOwnModelChange, setPick, setWatchedModel, wireModel } from './pick'
 import { ROUTED_PREFIX } from '../router/lib/resolve.mjs'
 
 export const register: Register = (on, options) => {
@@ -42,7 +42,8 @@ export const register: Register = (on, options) => {
       await markStarted($)
       if (config.defaultMainModel) await setPick($, config.defaultMainModel)
     }
-    await setWatchedModel($, await $.session.model())
+    // A failure here must not cost the timers: the first tick fills it in instead.
+    try { await setWatchedModel($, await $.session.model()) } catch { /* the tick retries */ }
     await refresh($, m)
     $.clock.every(2_000, () => void tick($, m))
     $.clock.every(10_000, () => void health($, m))
@@ -79,9 +80,9 @@ export const register: Register = (on, options) => {
     await clearPick($)
     // A Claude pick: new sessions must not start routed against it.
     await clearDefaultMainModel($, paths)
+    // The built-in's model change is this command's own: the tick must not count it again.
+    await expectOwnModelChange($)
     const result = await next(e)
-    // The built-in's change is this command's own: the tick must not count it again.
-    await setWatchedModel($, await $.session.model()).catch(() => {})
     // A redraw failure after the built-in ran must not reach the .catch and replay /model.
     await refresh($, m).catch(() => {})
     return result

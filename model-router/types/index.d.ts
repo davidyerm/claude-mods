@@ -22,6 +22,7 @@ declare module 'claude-code' {
       pick: Pick
       seenModel: string | null
       watchedModel: string | null
+      ownChangeUntil: number | null
       isStarted: boolean
       picker: PickerState
       wizard: WizardState

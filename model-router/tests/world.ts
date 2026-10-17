@@ -179,6 +179,9 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
   on('model.complete', ($, e) => { w.completes.push(e); return { value: w.complete(e) } })
   on('command.run', ($, e) => {
     w.commands.push({ command: e.command, args: e.args, origin: e.origin.kind })
+    // The built-in /model <alias> switches the session model, as the real one does.
+    const alias = e.command === 'model' ? /^(opus|sonnet|haiku|fable)$/.exec(e.args.trim())?.[1] : undefined
+    if (alias) w.model = `claude-${alias}-5-5`
     return { text: `built-in /${e.command} ${e.args}`.trim() }
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))

@@ -310,16 +310,21 @@ test('the arrows: the focus ring moving onto a row moves the cursor mark there',
   expect(rowOf(tree, 'claude:claude-opus-5-5')).toContain(CHECK)
 })
 
-test('the arrows wrap: off the last row onto the first, off the first onto the last', async ($, on) => {
+// The kit has no engine to answer the mod's own $.ui.focus (it throws "no
+// implementation for ui.focus"), so every wrap or scroll here is a move the ring
+// does not follow: the cursor must go back to the focused row. The wrap and window
+// arithmetic is pinned by planFocus and paneLayout above; a person checks the real
+// moves (field checks C2).
+test('the arrows wrap: off the last row the hook keeps the ring and asks for the first; refused, the mark stays put', async ($, on) => {
   world(on)
   await start($)
   await run($, 'model')
   await draw($)
   await focus($, 'builtin')
-  await focus($, undefined)
-  expect(rowOf(await draw($), 'claude:claude-opus-5-5')).toContain(CURSOR)
-  await focus($, undefined)
-  expect(rowOf(await draw($), 'builtin')).toContain(CURSOR)
+  expect(await focus($, undefined)).toEqual({})
+  const tree = await draw($)
+  expect(rowOf(tree, 'builtin')).toContain(CURSOR)
+  expect(rowOf(tree, 'claude:claude-opus-5-5')).not.toContain(CURSOR)
 })
 
 test('the /model pane: its title, subtitle and footer', async ($, on) => {
@@ -340,10 +345,15 @@ test('a short pane keeps the heading and the footer and windows the rows around 
   expect(short).toContain('\u2193 more')
   expect(short).not.toContain('Doctor')
   expect(short).not.toContain('Applies to this session only')
-  // stepping onto the hint scrolls: the next row is drawn and carries the cursor
-  await focus($, MORE_DOWN)
+})
+
+test('a scroll the ring cannot follow puts the cursor and the window back', async ($, on) => {
+  await opened($, on)
+  await draw($, 'terminal', 8)
+  await $.ui.press({ plugin: 'model-router', key: MORE_DOWN, surface: 'terminal' })
   const after = await draw($, 'terminal', 8)
-  expect(JSON.stringify(after)).toContain('\u2191 more')
+  expect(rowOf(after, 'claude:claude-opus-5-5')).toContain(CURSOR)
+  expect(JSON.stringify(after)).not.toContain('\u2191 more')
 })
 
 test('a pick no longer in the config leaves no entry checked', async ($, on) => {

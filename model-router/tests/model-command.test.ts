@@ -3,7 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import type { RenderSurface } from 'claude-code'
 import { PICKER_PANE } from '../hooks/picker'
 import { ambiguousText } from '../hooks/config'
-import { CONFIG, CONFIG_JSON, PANE_PROPS, readJson, run, start, step, world } from './world'
+import { CONFIG, CONFIG_JSON, down, PANE_PROPS, readJson, run, start, step, world } from './world'
 
 const OFF = { options: { takeOverModelCommand: false } }
 const fromPlugin = ($: Engine, args: string) =>
@@ -25,7 +25,7 @@ for (const surface of ['terminal', 'desktop'] as RenderSurface[]) {
     const tree = JSON.stringify(await $.ui.render({ surface, component: 'Pane', requestId: PICKER_PANE, props: { ...PANE_PROPS } }))
     expect(tree).toContain('[DS] ds-chat')
     expect(tree).toContain('manage: /router')
-    expect(tree).not.toContain('Override a Claude family…')
+    expect(tree).not.toContain('Override a Claude family\u2026')
   })
 }
 
@@ -250,4 +250,63 @@ test('a Claude pick in the /model picker whose removal cannot be written says so
   await press($, 'claude:sonnet')
   expect(w.toasts).toContain(`Could not remove the default main model: could not write ${CONFIG}: disk full`)
   expect(readJson(w, CONFIG).defaultMainModel).toBe('DS/ds-chat')
+})
+
+// -- round 2: a failing session.model at start, and the mod's own model changes --
+
+test('a session.model failure at start keeps the timers: the health check still respawns', async ($, on) => {
+  const w = world(on)
+  w.failSessionModel = true
+  await start($)
+  down(w)
+  await w.clock.advance(10_000)
+  expect(w.toasts).toContain('model-router restarted')
+})
+
+test('a session.model failure in the tick still redraws the status line', async ($, on) => {
+  const w = world(on)
+  await start($)
+  w.failSessionModel = true
+  const before = w.statusLines.length
+  await w.clock.advance(2000)
+  expect(w.statusLines.length).toBeGreaterThan(before)
+})
+
+test('a Claude pick in the /router picker changes the model but keeps the default, with no toast', async ($, on) => {
+  const w = world(on, WITH_DEFAULT)
+  await start($)
+  await run($, 'router')
+  await press($, 'claude:sonnet')
+  expect(w.model).toBe('claude-sonnet-5-5')
+  const toasts = w.toasts.length
+  await w.clock.advance(2000)
+  expect(readJson(w, CONFIG).defaultMainModel).toBe('DS/ds-chat')
+  expect(w.toasts.slice(toasts)).toEqual([])
+})
+
+test('the own-change guard expires: a later built-in change still removes the default', async ($, on) => {
+  const w = world(on, WITH_DEFAULT)
+  await start($)
+  await run($, 'router')
+  await press($, 'claude:sonnet')
+  await w.clock.advance(2000)
+  await w.clock.advance(6000)
+  w.model = 'claude-haiku-5-5'
+  await w.clock.advance(2000)
+  expect(readJson(w, CONFIG).defaultMainModel).toBe(undefined)
+  expect(w.toasts).toContain(REMOVED)
+})
+
+test('an own-change guard that saw no change expires at its deadline', async ($, on) => {
+  const w = world(on, WITH_DEFAULT)
+  await start($)
+  await run($, 'router')
+  await press($, 'claude:sonnet')
+  // the built-in did not switch after all: no change for the guard to absorb
+  w.model = 'claude-opus-5-5'
+  await w.clock.advance(6000)
+  w.model = 'claude-haiku-5-5'
+  await w.clock.advance(2000)
+  expect(readJson(w, CONFIG).defaultMainModel).toBe(undefined)
+  expect(w.toasts).toContain(REMOVED)
 })

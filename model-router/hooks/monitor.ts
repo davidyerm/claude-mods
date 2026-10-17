@@ -6,7 +6,7 @@ import { clearDefaultMainModel, display, loadConfig, portOf } from './config'
 import { ensureRouter } from './lifecycle'
 import type { Ensure } from './lifecycle'
 import { getPaths } from './paths'
-import { clearPick, getPick, getSeenModel, getWatchedModel, setWatchedModel } from './pick'
+import { clearPick, getPick, getSeenModel, getWatchedModel, setWatchedModel, takeOwnModelChange } from './pick'
 import { isForSession, statusLine, toastFor } from './status'
 
 // isWired: this session's ANTHROPIC_BASE_URL is the router (read at session.start).
@@ -74,23 +74,29 @@ export async function tick($: EngineInterface, m: Monitor): Promise<void> {
     for (const text of out.toasts) $.ui.toast(text)
   }
   const paths = await getPaths($)
-  const model = await $.session.model()
-  const watched = await getWatchedModel($)
-  await setWatchedModel($, model)
-  // A model change the mod did not make is a built-in /model pick, with or without a
-  // routed pick: the latest /model choice wins, so the default for new sessions goes.
-  let isBuiltinPick = watched !== null && model !== watched
-  const pick = await getPick($)
-  if (pick !== null) {
-    const { config } = await loadConfig($, paths)
-    const check = checkPick({ pick, refs: allRefs(config), seen: await getSeenModel($), model })
-    if (check !== 'keep') {
-      await clearPick($)
-      $.ui.toast(check.toast)
-      if (check.isBuiltinPick) isBuiltinPick = true
+  // A failing session.model skips only the model checks: the status line still redraws.
+  let model: string | null = null
+  try { model = await $.session.model() } catch { /* next tick */ }
+  if (model !== null) {
+    const watched = await getWatchedModel($)
+    await setWatchedModel($, model)
+    // A model change is a built-in /model pick, with or without a routed pick (the
+    // latest /model choice wins), unless the mod just ran /model itself.
+    const isChanged = watched !== null && model !== watched
+    const isOwn = isChanged && (await takeOwnModelChange($))
+    let isBuiltinPick = isChanged && !isOwn
+    const pick = await getPick($)
+    if (pick !== null) {
+      const { config } = await loadConfig($, paths)
+      const check = checkPick({ pick, refs: allRefs(config), seen: await getSeenModel($), model })
+      if (check !== 'keep' && !(check.isBuiltinPick && isOwn)) {
+        await clearPick($)
+        $.ui.toast(check.toast)
+        if (check.isBuiltinPick) isBuiltinPick = true
+      }
     }
+    if (isBuiltinPick) await clearDefaultMainModel($, paths)
   }
-  if (isBuiltinPick) await clearDefaultMainModel($, paths)
   await refresh($, m)
 }
 
