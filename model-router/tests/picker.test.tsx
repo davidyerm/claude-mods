@@ -51,7 +51,7 @@ test('an unwired session: every routed entry carries the not-active reason', () 
   const entries = pickerEntries({ mode: 'model', config, status: routerStatus(), sessionModel: 'claude-opus-5-5', pick: null, isWired: false })
   const routed = entries.filter(e => e.value.startsWith('routed:'))
   expect(routed.length).toBe(4)
-  expect(routed.map(e => e.label)).toEqual(['[DS] ds-chat — not active (/router setup)', '[DS] ds-reasoner — not active (/router setup)', '[OR] anthropic/claude-x — not active (/router setup)', '[OR] ds-chat — not active (/router setup)'])
+  expect(routed.map(e => e.label)).toEqual(['[DS] ds-chat â€” not active (/router setup)', '[DS] ds-reasoner â€” not active (/router setup)', '[OR] anthropic/claude-x â€” not active (/router setup)', '[OR] ds-chat â€” not active (/router setup)'])
   for (const e of routed) expect(e.disabledReason).toBe('model-router is not active in this session (ANTHROPIC_BASE_URL is not the router). Run /router setup, then restart Claude Code.')
   expect(entries.filter(e => !e.value.startsWith('routed:')).every(e => e.disabledReason === undefined)).toBe(true)
 })
@@ -185,4 +185,20 @@ test('the footer is drawn only when the pane has room for it', async ($, on) => 
   const short = JSON.stringify(await $.ui.render({ surface: 'terminal', component: 'Pane', requestId: PICKER_PANE, props: { ...PANE_PROPS, scroll: { offset: 0, bodyRows: 6 } } }))
   expect(short).not.toContain('manage: /router')
   expect(short).toContain('Main model for this session')
+})
+
+test('a pick no longer in the config leaves the Select value undefined', async ($, on) => {
+  const w = world(on, { config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-reasoner' } })
+  await start($)
+  const gone = { ...CONFIG_JSON, providers: [{ ...CONFIG_JSON.providers[0]!, models: [{ id: 'ds-chat' }] }, CONFIG_JSON.providers[1]!] }
+  w.files.set(CONFIG, JSON.stringify(gone))
+  await run($, 'router')
+  const text = JSON.stringify(await draw($))
+  expect(text).not.toContain('"value":"routed:DS/ds-reasoner"')
+  expect(text).toContain('"label":"model-router","autoFocus":true')
+})
+
+test('a session model that is an alias is listed once', () => {
+  const values = pickerEntries({ mode: 'model', config, status: routerStatus(), sessionModel: 'opus', pick: null }).map(e => e.value)
+  expect(values.filter(v => v === 'claude:opus')).toEqual(['claude:opus'])
 })

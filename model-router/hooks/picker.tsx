@@ -19,6 +19,7 @@ type EntriesInput = { mode: 'model' | 'router'; config: Config; status: RouterSt
 export function pickerEntries({ mode, config, status, sessionModel, pick, isWired = true }: EntriesInput): PickerEntry[] {
   const entries: PickerEntry[] = [{ value: `claude:${sessionModel}`, label: `Claude · ${sessionModel}${pick === null ? ' (current)' : ''}` }]
   for (const alias of ['opus', 'sonnet', 'haiku', 'fable'] as const) {
+    if (alias === sessionModel) continue
     const ref = config.overrides[alias]
     entries.push({ value: `claude:${alias}`, label: `Claude · ${alias}${ref ? ` → ${display(ref)}` : ''}` })
   }
@@ -26,7 +27,7 @@ export function pickerEntries({ mode, config, status, sessionModel, pick, isWire
     const state = providerState(status, ref)
     const reason = status?.providers.find(p => ref.startsWith(`${p.name}/`))?.reason ?? 'not available'
     const current = ref === pick ? ' (current)' : ''
-    if (!isWired) entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current} � not active (/router setup)`, disabledReason: NOT_ACTIVE_TEXT })
+    if (!isWired) entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current} — not active (/router setup)`, disabledReason: NOT_ACTIVE_TEXT })
     else if (state === 'unavailable') entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current} — unavailable: ${reason}`, disabledReason: `${display(ref)} is unavailable: ${reason}` })
     else entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current}${state === 'paused' ? ' — ⚠  paused' : ''}` })
   }
@@ -61,9 +62,11 @@ export function paneFooter(state: NonNullable<PickerState>): string | null {
 
 export async function openPicker($: EngineInterface, m: Monitor, mode: 'model' | 'router'): Promise<CommandRunResult> {
   const { config } = await loadConfig($, await getPaths($))
-  const entries = pickerEntries({ mode, config, status: m.status, sessionModel: await $.session.model(), pick: await getPick($), isWired: m.isWired })
+  const sessionModel = await $.session.model()
   const pick = await getPick($)
-  const current = pick === null ? `claude:${await $.session.model()}` : `routed:${pick}`
+  const entries = pickerEntries({ mode, config, status: m.status, sessionModel, pick, isWired: m.isWired })
+  const wanted = pick === null ? `claude:${sessionModel}` : `routed:${pick}`
+  const current = entries.some(e => e.value === wanted) ? wanted : undefined
   await update($, pickerAtom, (): PickerState => ({ mode, view: { kind: 'main' }, entries, current }))
   await $.ui.open({ id: PICKER_PANE, title: mode === 'model' ? 'Model' : 'model-router', focus: true, closeOnEscape: true })
   return {}
