@@ -17,11 +17,11 @@ export const pickerAtom = atom({ plugin: 'model-router', key: 'picker' } as cons
 type EntriesInput = { mode: 'model' | 'router'; config: Config; status: RouterStatus | null; sessionModel: string; pick: string | null; isWired?: boolean }
 
 export function pickerEntries({ mode, config, status, sessionModel, pick, isWired = true }: EntriesInput): PickerEntry[] {
-  const entries: PickerEntry[] = [{ value: `claude:${sessionModel}`, label: `Claude · ${sessionModel}${pick === null ? ' (current)' : ''}` }]
+  const arrow = (alias: string) => { const ref = (config.overrides as Record<string, string | undefined>)[alias]; return ref ? ` → ${display(ref)}` : '' }
+  const entries: PickerEntry[] = [{ value: `claude:${sessionModel}`, label: `Claude · ${sessionModel}${pick === null ? ' (current)' : ''}${arrow(sessionModel)}` }]
   for (const alias of ['opus', 'sonnet', 'haiku', 'fable'] as const) {
     if (alias === sessionModel) continue
-    const ref = config.overrides[alias]
-    entries.push({ value: `claude:${alias}`, label: `Claude · ${alias}${ref ? ` → ${display(ref)}` : ''}` })
+    entries.push({ value: `claude:${alias}`, label: `Claude · ${alias}${arrow(alias)}` })
   }
   for (const ref of allRefs(config)) {
     const state = providerState(status, ref)

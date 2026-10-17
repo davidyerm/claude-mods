@@ -43,15 +43,15 @@ test('the current pick, a paused and an unavailable provider are marked', () => 
   const s = routerStatus({ providers: [{ name: 'DS', available: true, breaker: 'open' }, { name: 'OR', available: false, reason: 'env OR_KEY not set', breaker: 'closed' }] })
   const all = labels('model', s, 'DS/ds-chat')
   expect(all[0]).toBe('Claude · claude-opus-5-5')
-  expect(all).toContain('[DS] ds-chat (current) — ⚠  paused')
-  expect(all).toContain('[OR] ds-chat — unavailable: env OR_KEY not set')
+  expect(all).toContain('[DS] ds-chat (current) \u2014 ⚠  paused')
+  expect(all).toContain('[OR] ds-chat \u2014 unavailable: env OR_KEY not set')
 })
 
 test('an unwired session: every routed entry carries the not-active reason', () => {
   const entries = pickerEntries({ mode: 'model', config, status: routerStatus(), sessionModel: 'claude-opus-5-5', pick: null, isWired: false })
   const routed = entries.filter(e => e.value.startsWith('routed:'))
   expect(routed.length).toBe(4)
-  expect(routed.map(e => e.label)).toEqual(['[DS] ds-chat — not active (/router setup)', '[DS] ds-reasoner — not active (/router setup)', '[OR] anthropic/claude-x — not active (/router setup)', '[OR] ds-chat — not active (/router setup)'])
+  expect(routed.map(e => e.label)).toEqual(['[DS] ds-chat \u2014 not active (/router setup)', '[DS] ds-reasoner \u2014 not active (/router setup)', '[OR] anthropic/claude-x \u2014 not active (/router setup)', '[OR] ds-chat \u2014 not active (/router setup)'])
   for (const e of routed) expect(e.disabledReason).toBe('model-router is not active in this session (ANTHROPIC_BASE_URL is not the router). Run /router setup, then restart Claude Code.')
   expect(entries.filter(e => !e.value.startsWith('routed:')).every(e => e.disabledReason === undefined)).toBe(true)
 })
@@ -201,4 +201,11 @@ test('a pick no longer in the config leaves the Select value undefined', async (
 test('a session model that is an alias is listed once', () => {
   const values = pickerEntries({ mode: 'model', config, status: routerStatus(), sessionModel: 'opus', pick: null }).map(e => e.value)
   expect(values.filter(v => v === 'claude:opus')).toEqual(['claude:opus'])
+})
+
+test('a session model that is an alias keeps its override arrow on the session row', () => {
+  const withOpus = { ...config, overrides: { ...config.overrides, opus: 'DS/ds-chat' } }
+  const entries = pickerEntries({ mode: 'model', config: withOpus, status: routerStatus(), sessionModel: 'opus', pick: null })
+  expect(entries[0]).toEqual({ value: 'claude:opus', label: 'Claude · opus (current) → [DS] ds-chat' })
+  expect(entries.filter(e => e.value === 'claude:opus').length).toBe(1)
 })
