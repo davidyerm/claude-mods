@@ -68,6 +68,9 @@ export async function setPick($: EngineInterface, ref: string): Promise<void> {
   await update($, pickAtom, () => ref)
   await update($, seenModelAtom, () => model)
   await update($, watchedModelAtom, () => model)
+  // A routed pick is a fresh choice: a guard left by a /model run that changed
+  // nothing must not absorb a later built-in pick.
+  await update($, ownChangeAtom, () => null)
 }
 
 export async function clearPick($: EngineInterface): Promise<void> {

@@ -191,6 +191,7 @@ async function stepTo($: EngineInterface, cursor: string, previous: string | und
   void $.ui.focus({ requestId: PICKER_PANE, key: cursor })
     .then(r => (r.deny === undefined ? undefined : Promise.reject(new Error(r.deny))))
     .catch(() => revertCursor($, cursor, previous))
+    .catch(() => {})
 }
 
 async function revertCursor($: EngineInterface, cursor: string, previous: string | undefined): Promise<void> {

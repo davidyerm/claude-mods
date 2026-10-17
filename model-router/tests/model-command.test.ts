@@ -310,3 +310,16 @@ test('an own-change guard that saw no change expires at its deadline', async ($,
   expect(readJson(w, CONFIG).defaultMainModel).toBe(undefined)
   expect(w.toasts).toContain(REMOVED)
 })
+
+test('a routed pick clears a stale own-change guard: a later built-in pick still removes the default', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await run($, 'model', 'nonsense')
+  expect(w.model).toBe('claude-opus-5-5')
+  expect((await run($, 'model', 'DS/ds-chat')).text).toBe('Main model: [DS] ds-chat (also the default for new sessions)')
+  expect(readJson(w, CONFIG).defaultMainModel).toBe('DS/ds-chat')
+  w.model = 'claude-sonnet-5-5'
+  await w.clock.advance(2000)
+  expect(readJson(w, CONFIG).defaultMainModel).toBe(undefined)
+  expect(w.toasts).toContain(REMOVED)
+})
