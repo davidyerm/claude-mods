@@ -71,6 +71,8 @@ export type World = {
   statusLines: (string | undefined)[]
   logs: string[]
   opened: string[]
+  // what each $.ui.open asked for, past its id
+  openArgs: Record<string, unknown>[]
   closed: string[]
   registered: string[]
   commands: { command: string; args: string; origin: string }[]
@@ -122,6 +124,7 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
     statusLines: [],
     logs: [],
     opened: [],
+    openArgs: [],
     closed: [],
     registered: [],
     commands: [],
@@ -169,7 +172,7 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
   on('ui.toast', ($, e) => { w.toasts.push(e.text); return { value: undefined } })
   on('ui.status', ($, e) => { w.statusLines.push(e.text); return { value: undefined } })
   on('ui.log', ($, e) => { w.logs.push(e.text); return { value: undefined } })
-  on('ui.open', ($, e) => { w.opened.push(e.id); return { value: { isPlaced: true } } })
+  on('ui.open', ($, e) => { w.opened.push(e.id); w.openArgs.push({ ...e }); return { value: { isPlaced: true } } })
   on('ui.close', ($, e) => { w.closed.push(e.id); return { value: undefined } })
   // The focus ring: the engine lands it where the chain left it, or refuses every move.
   on('ui.focus', () => (w.focusDeny === null ? {} : { deny: w.focusDeny }))

@@ -13,7 +13,7 @@
 
 - Branch `model-router`, PR https://github.com/davidyerm/claude-mods/pull/1. The PR is not merged.
 - The plugin is fully built and passes on the dev machine:
-  - router 112 tests, mod 218, rtl-mode 12
+  - router 112 tests, mod 220, rtl-mode 12
   - `tsc` clean
   - headless e2e 3/3
   - `claude plugin validate` passes
@@ -98,6 +98,8 @@ This runs against a **local fake API with a dummy key**. It touches no real acco
 ## Part C2: the picker's look and keys (human, about 5 minutes)
 
 The picker was rebuilt on 2026-10-17 to imitate the built-in `/model` picker. The tests check the tree it draws, not what a real terminal shows, so a person checks the keys. It needs a session with the mod loaded and at least one provider in `~/.claude/model-router.json`. The router does not need a real key.
+
+The picker opens as a **dialog** (`focus`, `closeOnEscape`, `holdToasts`, and `rows` set to its content height). So it should open as tall as its content, ↑/↓ should walk the rows rather than scroll the pane, and any toast raised while it is open (for example a disabled row's reason) should appear only after it closes. A disabled row's reason also shows as a dim line in the pane.
 
 **Claude: give the human these steps, then wait for their notes.**
 

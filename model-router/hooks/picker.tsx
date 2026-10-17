@@ -106,6 +106,15 @@ export function cursorOf(state: NonNullable<PickerState>): string | undefined {
   return values[0]
 }
 
+// Pure: the body rows the pane's content takes when drawn whole, which is what the
+// pane asks for as it opens (`rows`): heading, subtitle lines, a blank line above
+// and below the rows, the rows (a separator counted), a notice line, footer.
+export function contentRows(state: NonNullable<PickerState>, columns = 80): number {
+  const subtitle = paneSubtitle(state)
+  const subtitleLines = subtitle ? Math.ceil(subtitle.length / Math.max(20, columns)) : 0
+  return 1 + subtitleLines + 1 + pickerRows(state).length + (state.notice ? 1 : 0) + 1 + 1
+}
+
 export type PaneLayout = { showSubtitle: boolean; start: number; end: number; hasAbove: boolean; hasBelow: boolean }
 
 // Pure: which rows fit the pane. The heading and the footer always show; the
@@ -156,8 +165,11 @@ export async function openPicker($: EngineInterface, m: Monitor, mode: 'model' |
   const entries = pickerEntries({ mode, config, status: m.status, sessionModel, pick, isWired: m.isWired })
   const wanted = pick === null ? `claude:${sessionModel}` : `routed:${pick}`
   const current = entries.some(e => e.value === wanted) ? wanted : undefined
-  await update($, pickerAtom, (): PickerState => ({ mode, view: { kind: 'main' }, entries, current, cursor: current ?? entries[0]?.value }))
-  await $.ui.open({ id: PICKER_PANE, title: mode === 'model' ? 'Select model' : 'model-router', focus: true, closeOnEscape: true })
+  const state: NonNullable<PickerState> = { mode, view: { kind: 'main' }, entries, current, cursor: current ?? entries[0]?.value }
+  await update($, pickerAtom, (): PickerState => state)
+  // A dialog the person answers and leaves: it takes the keys, the arrows walk its
+  // rows (it opens as tall as its content), toasts wait until it closes.
+  await $.ui.open({ id: PICKER_PANE, title: mode === 'model' ? 'Select model' : 'model-router', focus: true, closeOnEscape: true, holdToasts: true, rows: contentRows(state) })
   return {}
 }
 
@@ -198,7 +210,13 @@ export async function choose($: EngineInterface, m: Monitor, value: string): Pro
   const state = await read($, pickerAtom)
   if (!state) return
   const entry = state.entries.find(e => e.value === value)
-  if (entry?.disabledReason) { await $.ui.toast(entry.disabledReason); return }
+  if (entry?.disabledReason) {
+    // The toast waits behind the dialog (holdToasts): the pane says it now too.
+    const notice = entry.disabledReason
+    await update($, pickerAtom, (s): PickerState => s && { ...s, notice })
+    await $.ui.toast(notice)
+    return
+  }
   const cut = value.indexOf(':')
   const kind = cut === -1 ? value : value.slice(0, cut)
   const rest = cut === -1 ? '' : value.slice(cut + 1)
@@ -245,7 +263,7 @@ export async function choose($: EngineInterface, m: Monitor, value: string): Pro
       if (rest === 'override') {
         const { config } = await loadConfig($, paths)
         const entries = familyEntries(config)
-        await update($, pickerAtom, (s): PickerState => s && { ...s, view: { kind: 'family' }, entries, current: undefined, cursor: entries[0]?.value })
+        await update($, pickerAtom, (s): PickerState => s && { ...s, view: { kind: 'family' }, entries, current: undefined, cursor: entries[0]?.value, notice: undefined })
         return
       }
       await closePicker($)
@@ -255,7 +273,7 @@ export async function choose($: EngineInterface, m: Monitor, value: string): Pro
     case 'family': {
       const { config } = await loadConfig($, paths)
       const entries = targetEntries(config)
-      await update($, pickerAtom, (s): PickerState => s && { ...s, view: { kind: 'target', family: rest }, entries, current: undefined, cursor: entries[0]?.value })
+      await update($, pickerAtom, (s): PickerState => s && { ...s, view: { kind: 'target', family: rest }, entries, current: undefined, cursor: entries[0]?.value, notice: undefined })
       return
     }
     case 'target': {
@@ -296,7 +314,7 @@ export function registerPicker(on: On, m: Monitor): void {
     const layout = paneLayout({
       rowCount: rows.length,
       cursorRow: rows.findIndex(r => r.kind === 'entry' && r.value === cursor),
-      bodyRows: props.scroll?.bodyRows,
+      bodyRows: props.scroll?.bodyRows === undefined ? undefined : props.scroll.bodyRows - (state.notice ? 1 : 0),
       subtitleLines: subtitle ? Math.ceil(subtitle.length / columns) : 0,
     })
     const shown = rows.slice(layout.start, layout.end)
@@ -332,6 +350,7 @@ export function registerPicker(on: On, m: Monitor): void {
             </Box>
           ))}
         {layout.hasBelow ? <Button key={MORE_DOWN} plain dimColor onPress={() => step(values[values.indexOf(drawn.at(-1) ?? '') + 1])}>{'  ↓ more'}</Button> : null}
+        {state.notice ? <Text dimColor wrap="truncate">{`  ${state.notice}`}</Text> : null}
         {layout.showSubtitle ? <Text> </Text> : null}
         <Text dimColor>{paneFooter(state)}</Text>
       </Box>

@@ -4,7 +4,7 @@ import type { RenderSurface } from 'claude-code'
 import { validateConfig } from '../router/lib/schema.mjs'
 import type { Config } from '../router/lib/schema.mjs'
 import type { PickerState } from '../types'
-import { cursorOf, familyEntries, familyOf, MORE_DOWN, MORE_UP, paneFooter, paneHeading, paneLayout, paneSubtitle, PICKER_PANE, pickerEntries, pickerRows, planFocus } from '../hooks/picker'
+import { contentRows, cursorOf, familyEntries, familyOf, MORE_DOWN, MORE_UP, paneFooter, paneHeading, paneLayout, paneSubtitle, PICKER_PANE, pickerEntries, pickerRows, planFocus } from '../hooks/picker'
 import { CONFIG, CONFIG_JSON, PANE_PROPS, readJson, routerStatus, run, start, step, up, world } from './world'
 import type { WorldOptions } from './world'
 import type { On } from 'claude-code'
@@ -164,6 +164,16 @@ test('focus: a move in the middle, or one a plugin makes, passes', () => {
   expect(planFocus({ values: VALUES, drawn: VALUES, cursor: 'e', element: undefined, isPerson: false })).toEqual({ kind: 'pass' })
 })
 
+test('contentRows: heading, subtitle lines, two blank lines, the rows with the separator, a notice, footer', () => {
+  const sub = (s: NonNullable<PickerState>) => Math.ceil((paneSubtitle(s) ?? '').length / 80)
+  const model = stateOf('model')
+  expect(contentRows(model)).toBe(1 + sub(model) + 1 + 9 + 1 + 1)
+  const router = stateOf('router')
+  expect(contentRows(router)).toBe(1 + sub(router) + 1 + 13 + 1 + 1 + 1)
+  expect(contentRows({ ...model, notice: 'why' })).toBe(contentRows(model) + 1)
+  expect(contentRows(stateOf('model', { view: { kind: 'family' }, entries: familyEntries(config) }))).toBe(1 + 1 + 4 + 1 + 1)
+})
+
 // -- through the hooks ------------------------------------------------------
 
 async function opened($: Engine, on: On, opts: WorldOptions & { status?: RouterStatus } = {}) {
@@ -202,6 +212,19 @@ test('bare /router opens the picker pane', async ($, on) => {
   expect(w.opened).toEqual([PICKER_PANE])
 })
 
+test('the picker opens as a dialog: focused, closed by Esc, toasts held, as tall as its content', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await run($, 'model')
+  await run($, 'router')
+  const model = { mode: 'model' as const, view: { kind: 'main' as const }, entries: entriesOf('model'), current: 'claude:claude-opus-5-5' }
+  const router = { ...model, mode: 'router' as const, entries: entriesOf('router') }
+  expect(w.openArgs).toEqual([
+    { id: PICKER_PANE, title: 'Select model', focus: true, closeOnEscape: true, holdToasts: true, rows: contentRows(model) },
+    { id: PICKER_PANE, title: 'model-router', focus: true, closeOnEscape: true, holdToasts: true, rows: contentRows(router) },
+  ])
+})
+
 test('picking a routed model sets the pick and closes the pane', async ($, on) => {
   const w = await opened($, on)
   const toastsBefore = w.toasts.length
@@ -238,6 +261,8 @@ test('an unavailable entry is drawn dim, explains itself and keeps the pane open
   await pick($, 'routed:OR/ds-chat')
   expect(w.toasts.slice(toastsBefore)).toEqual(['[OR] ds-chat is unavailable: env OR_KEY not set'])
   expect(w.closed).toEqual([])
+  // the toast waits behind the dialog: the pane says it too
+  expect(JSON.stringify(await draw($))).toContain('[OR] ds-chat is unavailable: env OR_KEY not set')
   await step($)
   expect(w.stepModels.at(-1)).toBe('claude-opus-5-5')
 })
