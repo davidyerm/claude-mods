@@ -73,6 +73,7 @@ The router reads the key variable from the environment it was started in. Put ke
 - **Failures.** A provider that fails before its first byte (connection, timeout, 429, 5xx, a rejected field) falls back to Claude. Three failures in a row pause it for 5 minutes (`[DeepSeek] ⚠  paused`). A failure mid-answer is shown as an error, not retried.
 - **Several sessions** share one router. It starts with the first session and exits after 30 idle minutes.
 - **Context windows** of routed models are unknown to Claude Code, so its context % and auto-compact use defaults. The separate `model-limits` plugin (planned) will handle that.
+- **Picking Claude.** Choosing a Claude entry in the `/model` picker runs the built-in `/model <name>`, which also saves it as your default model for new sessions, as the stock picker does. Routed picks last only for the current session (`/router default` sets one for new sessions).
 - Claude Code may log `[claude-code:unrecognized_model]` for routed models; that is expected.
 
 ## Security
