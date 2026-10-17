@@ -56,9 +56,10 @@ The router reads the key variable from the environment it was started in. Put ke
 
 | Command | What it does |
 |---|---|
-| `/model` | Claude models and `[Provider] model` entries in one list (turn off with the `takeOverModelCommand` option) |
-| `/router` | The same list plus: set default, override a family, add a provider, doctor |
-| `/router <model>` / `/router claude` | Set / clear this session's main model |
+| `/model` | Claude models and `[Provider] model` entries in one list (turn off with the `takeOverModelCommand` option). A pick of either kind is also the default for new sessions |
+| `/model <model>` | Switch to a routed model; it also becomes the default for new sessions |
+| `/router` | The same list plus: set default, override a family, add a provider, doctor. Picks here are for this session only |
+| `/router <model>` / `/router claude` | Set / clear this session's main model (this session only) |
 | `/router default <model\|clear>` | Main model for new sessions |
 | `/router override <family> <model\|clear>` | Send a Claude family to a model, in every session |
 | `/router add` / `/router remove <provider\|provider/model>` | Manage providers |
@@ -73,7 +74,8 @@ The router reads the key variable from the environment it was started in. Put ke
 - **Failures.** A provider that fails before its first byte (connection, timeout, 429, 5xx, a rejected field) falls back to Claude. Three failures in a row pause it for 5 minutes (`[DeepSeek] ⚠  paused`). A failure mid-answer is shown as an error, not retried.
 - **Several sessions** share one router. It starts with the first session and exits after 30 idle minutes.
 - **Context windows** of routed models are unknown to Claude Code, so its context % and auto-compact use defaults. The separate `model-limits` plugin (planned) will handle that.
-- **Picking Claude.** Choosing a Claude entry in the `/model` picker runs the built-in `/model <name>`, which also saves it as your default model for new sessions, as the stock picker does. Routed picks last only for the current session (`/router default` sets one for new sessions).
+- **The picker** looks like Claude Code's own: numbered rows with a dim description, `✔` on the current model and `❯` on the cursor. ↑/↓ move (wrapping at the ends), Enter or a digit 1–9 chooses, Esc closes. Unavailable entries are dim and say why. A short terminal shows a window of rows with `↑ more` / `↓ more`.
+- **`/model` picks persist, `/router` picks don't.** A pick through `/model` becomes the default for new sessions, as the built-in picker's does: a routed pick sets `defaultMainModel`, and a Claude pick (in the picker, `/model <name>`, or the built-in picker) removes it. `/router <model>` and the `/router` picker change only the current session; `/router default` sets the default explicitly. If the default can't be saved, the pick still applies and the confirmation says why.
 - Claude Code may log `[claude-code:unrecognized_model]` for routed models; that is expected.
 
 ## Security

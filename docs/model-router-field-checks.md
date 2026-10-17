@@ -13,7 +13,7 @@
 
 - Branch `model-router`, PR https://github.com/davidyerm/claude-mods/pull/1. The PR is not merged.
 - The plugin is fully built and passes on the dev machine:
-  - router 112 tests, mod 180, rtl-mode 12
+  - router 112 tests, mod 205, rtl-mode 12
   - `tsc` clean
   - headless e2e 3/3
   - `claude plugin validate` passes
@@ -94,6 +94,25 @@ This runs against a **local fake API with a dummy key**. It touches no real acco
    - **V5:** record which line showed the built-in pick: `after next(e)`, the 1 s `session.model changed` line, or neither. The mod's 2 s tick needs the `session.model` change to be visible.
    - **V6 PASS:** `$.fs.write OK` with no prompt. The product writes settings through `node router/launch.mjs write`, so a V6 FAIL matters only if running `node` through `$.process.run` itself prompted.
 3. Record each row in `docs/model-router-verification.md`. Keep `capture.jsonl` and `stderr.txt` out of git; they are already in `docs/model-router-spike/.gitignore`.
+
+## Part C2: the picker's look and keys (human, about 5 minutes)
+
+The picker was rebuilt on 2026-10-17 to imitate the built-in `/model` picker. The tests check the tree it draws, not what a real terminal shows, so a person checks the keys. It needs a session with the mod loaded and at least one provider in `~/.claude/model-router.json`. The router does not need a real key.
+
+**Claude: give the human these steps, then wait for their notes.**
+
+1. In a **tall** terminal (40+ rows), type `/model`. Check:
+   - the title "Select model", the dim subtitle, numbered rows, and the footer `Enter to confirm · Esc to exit · manage: /router`;
+   - `✔` and `❯` on the current model.
+2. Press ↓ a few times. `❯` should follow the highlighted row. At the last row ↓ should wrap to the first; at the first row ↑ should wrap to the last.
+3. Press Esc. The pane closes and nothing changes.
+4. Type `/model` again and press a digit, e.g. `2`. That row should be chosen at once.
+5. Type `/model`, move to a routed row and press Enter. The toast should say `(also the default for new sessions)`. Then `/router claude`.
+6. With a disabled row (for example a provider whose key is unset, so it is "unavailable"), check that it is dim, keeps its reason, and that choosing it only toasts the reason.
+7. Shrink the terminal to about 12 rows and type `/router`. Check that the heading and the footer still show, and `↓ more` appears. Moving down past the last visible row should scroll the window and show `↑ more`.
+8. Note anything that differs: the engine draws `1:` (not `1.`) before each row; rows past 9 show a dim number and have no digit key.
+
+Record the result as row "C2 picker" in `docs/model-router-verification.md`. If the arrows only scroll the pane and don't move between rows, note it: the fallback is digit keys plus Tab, and the fix is to draw the rows in a `Client` surface module.
 
 ## Part D: decision table (Claude applies this for any FAIL)
 

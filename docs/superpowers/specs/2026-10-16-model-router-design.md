@@ -256,6 +256,8 @@ Failure → status line `model-router DOWN — /router doctor`. The session cont
 - The pick lives in `$.state` (`model-router.pick: string | null`).
 - If `session.model` changes to a Claude model the user picked (built-in picker), the pick is cleared.
 
+> **2026-10-17 change (user decision):** picks made through `/model` persist like the built-in picker's. A routed pick through `/model` (the picker in model mode, or `/model <routed name>`) also writes `defaultMainModel` and confirms `Main model: [P] m (also the default for new sessions)`. A Claude pick through `/model` (a Claude entry in the picker, `/model <anything else>`, or a built-in pick the 2 s tick detects) also removes `defaultMainModel` when it is set. `/router` picks (the router-mode picker, `/router <name>`) stay session-only; `/router default` is the explicit way to set the default. If `updateConfig` fails the session pick is kept and the reason is shown: `Main model: [P] m (could not save as default: <message>)`. The picker itself now imitates the built-in `/model` picker (numbered rows, `✔`, `❯`, arrows, digits); see §7.5's note.
+
 ### 7.5 `/model` (D15, D16)
 
 The hook is `command.run`, matching `{ command: 'model' }`, wrapped in `.catch(… → next(e))`.
@@ -274,6 +276,8 @@ The hook is `command.run`, matching `{ command: 'model' }`, wrapped in `.catch(�
 3. Ambiguous → listed with a hint.
 
 **Management actions are never offered in `/model`.**
+
+> **2026-10-17 change (user decision):** a routed pick in `/model` (picker or `/model <routed name>`) also becomes the default for new sessions (`defaultMainModel`), and a Claude pick in `/model` removes that default, as described in §7.4's note. The `/model <routed name>` confirmation reads `Main model: [Provider] model (also the default for new sessions)`. The picker draws like the built-in one: title "Select model" (router mode "model-router"), numbered rows with a dim description (`claude-<family>` or the session model id, `via <Provider>` with `· paused` / `· unavailable: <reason>` / `· not active (/router setup)`), `✔` on the current entry, `❯` on the cursor, ↑/↓ wrapping, Enter, digits 1–9, Esc; footer `Enter to confirm · Esc to exit · manage: /router`. The session's own model stands for its family, so that family's alias is not listed again.
 
 ### 7.6 `/router` (D14)
 
