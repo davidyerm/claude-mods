@@ -2,7 +2,7 @@
 export type Pick = string | null
 export type PickerEntry = { value: string; label: string; disabledReason?: string }
 export type PickerView = { kind: 'main' } | { kind: 'family' } | { kind: 'target'; family: string }
-export type PickerState = { mode: 'model' | 'router'; view: PickerView; entries: PickerEntry[] } | null
+export type PickerState = { mode: 'model' | 'router'; view: PickerView; entries: PickerEntry[]; current?: string } | null
 export type WizardStep = 'name' | 'baseUrl' | 'key' | 'models' | 'test'
 export type WizardState = {
   step: WizardStep

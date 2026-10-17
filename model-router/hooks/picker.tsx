@@ -26,7 +26,7 @@ export function pickerEntries({ mode, config, status, sessionModel, pick, isWire
     const state = providerState(status, ref)
     const reason = status?.providers.find(p => ref.startsWith(`${p.name}/`))?.reason ?? 'not available'
     const current = ref === pick ? ' (current)' : ''
-    if (!isWired) entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current}`, disabledReason: NOT_ACTIVE_TEXT })
+    if (!isWired) entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current} � not active (/router setup)`, disabledReason: NOT_ACTIVE_TEXT })
     else if (state === 'unavailable') entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current} — unavailable: ${reason}`, disabledReason: `${display(ref)} is unavailable: ${reason}` })
     else entries.push({ value: `routed:${ref}`, label: `${display(ref)}${current}${state === 'paused' ? ' — ⚠  paused' : ''}` })
   }
@@ -62,7 +62,9 @@ export function paneFooter(state: NonNullable<PickerState>): string | null {
 export async function openPicker($: EngineInterface, m: Monitor, mode: 'model' | 'router'): Promise<CommandRunResult> {
   const { config } = await loadConfig($, await getPaths($))
   const entries = pickerEntries({ mode, config, status: m.status, sessionModel: await $.session.model(), pick: await getPick($), isWired: m.isWired })
-  await update($, pickerAtom, () => ({ mode, view: { kind: 'main' }, entries }))
+  const pick = await getPick($)
+  const current = pick === null ? `claude:${await $.session.model()}` : `routed:${pick}`
+  await update($, pickerAtom, (): PickerState => ({ mode, view: { kind: 'main' }, entries, current }))
   await $.ui.open({ id: PICKER_PANE, title: mode === 'model' ? 'Model' : 'model-router', focus: true, closeOnEscape: true })
   return {}
 }
@@ -122,7 +124,7 @@ export async function choose($: EngineInterface, m: Monitor, value: string): Pro
       }
       if (rest === 'override') {
         const { config } = await loadConfig($, paths)
-        await update($, pickerAtom, (s): PickerState => s && { ...s, view: { kind: 'family' }, entries: familyEntries(config) })
+        await update($, pickerAtom, (s): PickerState => s && { ...s, view: { kind: 'family' }, entries: familyEntries(config), current: undefined })
         return
       }
       await closePicker($)
@@ -131,7 +133,7 @@ export async function choose($: EngineInterface, m: Monitor, value: string): Pro
     }
     case 'family': {
       const { config } = await loadConfig($, paths)
-      await update($, pickerAtom, (s): PickerState => s && { ...s, view: { kind: 'target', family: rest }, entries: targetEntries(config) })
+      await update($, pickerAtom, (s): PickerState => s && { ...s, view: { kind: 'target', family: rest }, entries: targetEntries(config), current: undefined })
       return
     }
     case 'target': {
@@ -161,11 +163,13 @@ export function registerPicker(on: On, m: Monitor): void {
     const state = await read($, pickerAtom)
     const { Box, Text, Select } = $.ui.resolve(e)
     if (!state) return <Text dimColor>Nothing to pick. Run /model or /router.</Text>
-    const footer = paneFooter(state)
+    // The heading is the Select's label so a short pane still draws it; the footer
+    // only when the rows hold the label line, every option and the footer line.
+    const rows = (e.props as { scroll?: { bodyRows?: number } }).scroll?.bodyRows
+    const footer = rows === undefined || rows >= state.entries.length + 2 ? paneFooter(state) : null
     return (
       <Box flexDirection="column">
-        <Text>{paneHeading(state)}</Text>
-        <Select key="picker" autoFocus options={state.entries.map(({ value, label }) => ({ value, label }))} onSelect={value => void choose($, m, value)} />
+        <Select key="picker" autoFocus label={paneHeading(state)} value={state.current} options={state.entries.map(({ value, label }) => ({ value, label }))} onSelect={value => void choose($, m, value)} />
         {footer ? <Text dimColor>{footer}</Text> : null}
       </Box>
     )

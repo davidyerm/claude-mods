@@ -51,6 +51,7 @@ test('an unwired session: every routed entry carries the not-active reason', () 
   const entries = pickerEntries({ mode: 'model', config, status: routerStatus(), sessionModel: 'claude-opus-5-5', pick: null, isWired: false })
   const routed = entries.filter(e => e.value.startsWith('routed:'))
   expect(routed.length).toBe(4)
+  expect(routed.map(e => e.label)).toEqual(['[DS] ds-chat — not active (/router setup)', '[DS] ds-reasoner — not active (/router setup)', '[OR] anthropic/claude-x — not active (/router setup)', '[OR] ds-chat — not active (/router setup)'])
   for (const e of routed) expect(e.disabledReason).toBe('model-router is not active in this session (ANTHROPIC_BASE_URL is not the router). Run /router setup, then restart Claude Code.')
   expect(entries.filter(e => !e.value.startsWith('routed:')).every(e => e.disabledReason === undefined)).toBe(true)
 })
@@ -153,4 +154,35 @@ test('the pane draws a Select on every surface that has one', async ($, on) => {
 test('a surface without a Select names the /router command instead', async ($, on) => {
   await opened($, on)
   expect(JSON.stringify(await draw($, 'mobile'))).toContain('Use /router Provider/model on this surface.')
+})
+
+test('the heading is the Select label, the value is the current entry, and no "none" shows', async ($, on) => {
+  await opened($, on)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const text = JSON.stringify(await draw($, surface))
+    expect(text).toContain('"label":"model-router"')
+    expect(text).toContain('"value":"claude:claude-opus-5-5"')
+    expect(text).not.toContain('none')
+  }
+})
+
+test('with a pick the Select value is the routed entry', async ($, on) => {
+  world(on)
+  await start($)
+  await run($, 'router', 'DS/ds-chat')
+  await run($, 'router')
+  const text = JSON.stringify(await draw($))
+  expect(text).toContain('"value":"routed:DS/ds-chat"')
+  expect(text).toContain('"label":"model-router"')
+})
+
+test('the footer is drawn only when the pane has room for it', async ($, on) => {
+  world(on)
+  await start($)
+  await run($, 'model')
+  const tall = JSON.stringify(await draw($))
+  expect(tall).toContain('manage: /router')
+  const short = JSON.stringify(await $.ui.render({ surface: 'terminal', component: 'Pane', requestId: PICKER_PANE, props: { ...PANE_PROPS, scroll: { offset: 0, bodyRows: 6 } } }))
+  expect(short).not.toContain('manage: /router')
+  expect(short).toContain('Main model for this session')
 })
