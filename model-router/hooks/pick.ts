@@ -22,6 +22,18 @@ export async function getSeenModel($: EngineInterface): Promise<string | null> {
   return read($, seenModelAtom)
 }
 
+// The session model the tick saw last, kept with or without a pick: a change the
+// mod did not make itself is a built-in /model choice.
+export const watchedModelAtom = atom({ plugin: 'model-router', key: 'watchedModel' } as const, null as string | null)
+
+export async function getWatchedModel($: EngineInterface): Promise<string | null> {
+  return read($, watchedModelAtom)
+}
+
+export async function setWatchedModel($: EngineInterface, model: string): Promise<void> {
+  await update($, watchedModelAtom, () => model)
+}
+
 export async function isStarted($: EngineInterface): Promise<boolean> {
   return read($, startedAtom)
 }
@@ -34,6 +46,7 @@ export async function setPick($: EngineInterface, ref: string): Promise<void> {
   const model = await $.session.model()
   await update($, pickAtom, () => ref)
   await update($, seenModelAtom, () => model)
+  await update($, watchedModelAtom, () => model)
 }
 
 export async function clearPick($: EngineInterface): Promise<void> {

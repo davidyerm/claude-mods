@@ -11,11 +11,11 @@ import type { On } from 'claude-code'
 import type { RouterStatus } from '../hooks/client'
 
 // Non-ASCII characters are spelled as escapes here (implementer rules).
-const ARROW = '→'
-const CURSOR = '❯'
-const CHECK = '✔'
-const DOT = '·'
-const ELLIPSIS = '…'
+const ARROW = '\u2192'
+const CURSOR = '\u276f'
+const CHECK = '\u2714'
+const DOT = '\u00b7'
+const ELLIPSIS = '\u2026'
 
 const config = (validateConfig(CONFIG_JSON) as { ok: true; config: Config }).config
 const entriesOf = (mode: 'model' | 'router', status = routerStatus(), pick: string | null = null) =>
@@ -148,8 +148,8 @@ test('focus: landing on a row moves the cursor there', () => {
 })
 
 test('focus: leaving the rows at either end wraps to the other end', () => {
-  expect(planFocus({ values: VALUES, drawn: VALUES, cursor: 'e', element: undefined, isPerson: true })).toEqual({ kind: 'redirect', cursor: 'a' })
-  expect(planFocus({ values: VALUES, drawn: VALUES, cursor: 'a', element: undefined, isPerson: true })).toEqual({ kind: 'redirect', cursor: 'e' })
+  expect(planFocus({ values: VALUES, drawn: VALUES, cursor: 'e', element: undefined, isPerson: true })).toEqual({ kind: 'refocus', cursor: 'a' })
+  expect(planFocus({ values: VALUES, drawn: VALUES, cursor: 'a', element: undefined, isPerson: true })).toEqual({ kind: 'refocus', cursor: 'e' })
   // windowed: the other end is not drawn yet
   expect(planFocus({ values: VALUES, drawn: ['c', 'd', 'e'], cursor: 'e', element: undefined, isPerson: true })).toEqual({ kind: 'refocus', cursor: 'a' })
 })
@@ -280,7 +280,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(other).not.toContain(CURSOR)
     expect(other).not.toContain(CHECK)
     expect(rowOf(tree, 'action:doctor')).toContain('Doctor')
-    expect(text).toContain('──')
+    expect(text).toContain('\u2500\u2500')
   })
 }
 
@@ -337,13 +337,13 @@ test('a short pane keeps the heading and the footer and windows the rows around 
   const short = JSON.stringify(await draw($, 'terminal', 8))
   expect(short).toContain('"model-router"')
   expect(short).toContain(`Enter to confirm ${DOT} Esc to exit`)
-  expect(short).toContain('↓ more')
+  expect(short).toContain('\u2193 more')
   expect(short).not.toContain('Doctor')
   expect(short).not.toContain('Applies to this session only')
   // stepping onto the hint scrolls: the next row is drawn and carries the cursor
   await focus($, MORE_DOWN)
   const after = await draw($, 'terminal', 8)
-  expect(JSON.stringify(after)).toContain('↑ more')
+  expect(JSON.stringify(after)).toContain('\u2191 more')
 })
 
 test('a pick no longer in the config leaves no entry checked', async ($, on) => {
@@ -355,4 +355,21 @@ test('a pick no longer in the config leaves no entry checked', async ($, on) => 
   const tree = await draw($)
   expect(JSON.stringify(tree)).not.toContain(CHECK)
   expect(rowOf(tree, 'claude:claude-opus-5-5')).toContain(CURSOR)
+})
+
+test('a refused focus move leaves the cursor mark where it was', async ($, on) => {
+  const w = await opened($, on)
+  await draw($)
+  w.focusDeny = 'x'
+  await focus($, 'claude:sonnet')
+  const tree = await draw($)
+  expect(rowOf(tree, 'claude:claude-opus-5-5')).toContain(CURSOR)
+  expect(rowOf(tree, 'claude:sonnet')).not.toContain(CURSOR)
+})
+
+test('rows from 10 on carry a dim number and a space, and no digit key', async ($, on) => {
+  await opened($, on)
+  const tree = await draw($)
+  expect(rowOf(tree, 'action:default')).toContain('"10: "')
+  expect(rowOf(tree, 'action:default')).not.toContain('"hotkey"')
 })

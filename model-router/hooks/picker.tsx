@@ -4,11 +4,11 @@ import { allRefs, FAMILIES, parseRef } from '../router/lib/schema.mjs'
 import type { Config } from '../router/lib/schema.mjs'
 import type { PickerEntry, PickerState } from '../types'
 import type { RouterStatus } from './client'
-import { display, loadConfig, pickedText, saveDefaultMainModel, unsavedClearText, updateConfig } from './config'
+import { clearDefaultMainModel, display, loadConfig, pickedText, saveDefaultMainModel, updateConfig } from './config'
 import { refresh, reprobe } from './monitor'
 import type { Monitor } from './monitor'
 import { getPaths } from './paths'
-import { clearPick, getPick, NOT_ACTIVE_TEXT, providerState, setPick } from './pick'
+import { clearPick, getPick, NOT_ACTIVE_TEXT, providerState, setPick, setWatchedModel } from './pick'
 
 export const PICKER_PANE = 'model-router-picker'
 // read/update on this atom stay in this file (the engine allows them only beside the atom).
@@ -129,16 +129,17 @@ export function paneLayout({ rowCount, cursorRow, bodyRows, subtitleLines }: { r
 export type FocusPlan =
   | { kind: 'pass' }
   | { kind: 'land'; cursor: string }
-  | { kind: 'redirect'; cursor: string }
   | { kind: 'refocus'; cursor: string }
 
 // Pure: what a move of the pane's focus ring does to the cursor. `values` are the
 // entries in order, `drawn` those drawn now. Onto a row: the cursor follows. Onto a
-// scroll hint: the cursor steps past the window (refocus: drawn after the redraw).
-// Off the rows at either end (the engine's own stops): it wraps to the other end.
+// scroll hint: the cursor steps past the window. Off the rows at either end (onto
+// the engine's own stops): it wraps to the other end. A refocus keeps the ring where
+// it is and moves it with $.ui.focus: the engine refuses a rewrite that names an
+// element where the move named none.
 export function planFocus({ values, drawn, cursor, element, isPerson }: { values: readonly string[]; drawn: readonly string[]; cursor: string | undefined; element: string | undefined; isPerson: boolean }): FocusPlan {
   if (element !== undefined && values.includes(element)) return { kind: 'land', cursor: element }
-  const go = (target: string | undefined): FocusPlan => (target === undefined ? { kind: 'pass' } : drawn.includes(target) ? { kind: 'redirect', cursor: target } : { kind: 'refocus', cursor: target })
+  const go = (target: string | undefined): FocusPlan => (target === undefined ? { kind: 'pass' } : { kind: 'refocus', cursor: target })
   if (element === MORE_UP) return go(values[values.indexOf(drawn[0] ?? '') - 1])
   if (element === MORE_DOWN) { const last = values.indexOf(drawn.at(-1) ?? ''); return last === -1 ? { kind: 'pass' } : go(values[last + 1]) }
   if (!isPerson || cursor === undefined || values.length < 2) return { kind: 'pass' }
@@ -169,10 +170,12 @@ async function setCursor($: EngineInterface, cursor: string): Promise<void> {
   await update($, pickerAtom, (s): PickerState => s && { ...s, cursor })
 }
 
-// The cursor moves past the window: redraw, then put the ring on the new row.
+// Put the ring on another row: the cursor moves first, so a row outside the window
+// is drawn, then the ring is asked to follow. The ask is not awaited: the engine
+// settles one move at a time, and this one may start inside a ui.focus hook.
 async function stepTo($: EngineInterface, cursor: string): Promise<void> {
   await setCursor($, cursor)
-  await $.ui.focus({ requestId: PICKER_PANE, key: cursor }).catch(() => ({}))
+  void $.ui.focus({ requestId: PICKER_PANE, key: cursor }).catch(() => ({}))
 }
 
 async function runCommand($: EngineInterface, command: string, args = ''): Promise<void> {
@@ -197,19 +200,18 @@ export async function choose($: EngineInterface, m: Monitor, value: string): Pro
     case 'claude': {
       await clearPick($)
       // /model mode: the Claude pick is the default again (router mode is session-only).
-      if (state.mode === 'model') {
-        const clearError = unsavedClearText(await saveDefaultMainModel($, paths, null))
-        if (clearError) await $.ui.toast(clearError)
-      }
+      if (state.mode === 'model') await clearDefaultMainModel($, paths)
       await closePicker($)
       await refresh($, m)
       if (rest !== (await $.session.model())) await runCommand($, 'model', rest)
+      // The mod made this change itself: the tick must not read it as a built-in pick.
+      await setWatchedModel($, await $.session.model())
       return
     }
     case 'routed': {
       await setPick($, rest)
       // /model mode: also the default for new sessions; router mode: this session only.
-      const text = state.mode === 'model' ? pickedText(rest, await saveDefaultMainModel($, paths, rest)) : `Main model: ${display(rest)}`
+      const text = state.mode === 'model' ? pickedText(rest, (await saveDefaultMainModel($, paths, rest)).error) : `Main model: ${display(rest)}`
       await closePicker($)
       await reprobe($, m)
       await refresh($, m)
@@ -304,7 +306,7 @@ export function registerPicker(on: On, m: Monitor): void {
           : (
             <Box key={`row:${row.value}`} flexDirection="row">
               <Text>{row.value === cursor ? '❯ ' : '  '}</Text>
-              {row.number > 9 ? <Text dimColor>{`${row.number}:`}</Text> : null}
+              {row.number > 9 ? <Text dimColor>{`${row.number}: `}</Text> : null}
               <Button
                 key={row.value}
                 plain
@@ -332,9 +334,14 @@ export function registerPicker(on: On, m: Monitor): void {
     if (!state) return next(e)
     const plan = planFocus({ values: state.entries.map(x => x.value), drawn, cursor: cursorOf(state), element: e.element, isPerson: e.origin.kind === 'person' })
     if (plan.kind === 'pass') return next(e)
-    if (plan.kind === 'land') { await setCursor($, plan.cursor); return next(e) }
-    if (plan.kind === 'redirect') { await setCursor($, plan.cursor); return next({ ...e, element: plan.cursor }) }
-    void stepTo($, plan.cursor)
+    // The cursor follows the ring only where the ring went.
+    if (plan.kind === 'land') {
+      const r = await next(e)
+      // A move of our own (stepTo) set the cursor already; a late one must not undo a newer move.
+      if (r.deny === undefined && e.origin.kind === 'person') await setCursor($, plan.cursor)
+      return r
+    }
+    await stepTo($, plan.cursor)
     return {}
   }).catch(($, e, next) => next(e))
 }

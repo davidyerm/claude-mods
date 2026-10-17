@@ -196,3 +196,58 @@ test('when the default cannot be saved the pick stays and the reason is shown', 
   await step($)
   expect(w.stepModels.at(-1)).toBe('router:OR/ds-chat#claude-opus-5-5')
 })
+
+// -- review fixes: the latest /model choice wins, and its removal shows --
+
+const REMOVED = 'Default for new sessions: back to Claude (removed [DS] ds-chat)'
+
+test('with no pick, the tick still sees a built-in model change and removes the default', async ($, on) => {
+  const w = world(on, WITH_DEFAULT)
+  await start($)
+  await run($, 'router', 'claude')
+  await w.clock.advance(2000)
+  expect(readJson(w, CONFIG).defaultMainModel).toBe('DS/ds-chat')
+  w.model = 'claude-sonnet-5-5'
+  await w.clock.advance(2000)
+  expect(readJson(w, CONFIG).defaultMainModel).toBe(undefined)
+  expect(w.toasts.filter(t => t === REMOVED).length).toBe(1)
+})
+
+test("Claude Code's picker row in model mode: a pick there removes the default through the tick", async ($, on) => {
+  const w = world(on, WITH_DEFAULT)
+  await start($)
+  await run($, 'model')
+  await press($, 'builtin')
+  expect(w.commands).toEqual([{ command: 'model', args: '', origin: 'plugin' }])
+  w.model = 'claude-sonnet-5-5'
+  await w.clock.advance(2000)
+  expect(readJson(w, CONFIG).defaultMainModel).toBe(undefined)
+})
+
+test('a removal of the default is toasted exactly once', async ($, on) => {
+  const w = world(on, WITH_DEFAULT)
+  await start($)
+  await run($, 'model', 'sonnet')
+  await w.clock.advance(2000)
+  await w.clock.advance(2000)
+  expect(w.toasts.filter(t => t === REMOVED).length).toBe(1)
+})
+
+test('a routed /model pick right after a built-in change keeps its new default', async ($, on) => {
+  const w = world(on)
+  await start($)
+  w.model = 'claude-sonnet-5-5'
+  await run($, 'model', 'DS/ds-chat')
+  await w.clock.advance(2000)
+  expect(readJson(w, CONFIG).defaultMainModel).toBe('DS/ds-chat')
+})
+
+test('a Claude pick in the /model picker whose removal cannot be written says so', async ($, on) => {
+  const w = world(on, WITH_DEFAULT)
+  await start($)
+  await run($, 'model')
+  w.tool = sub => (sub === 'write' ? { ok: false, error: 'disk full' } : undefined)
+  await press($, 'claude:sonnet')
+  expect(w.toasts).toContain(`Could not remove the default main model: could not write ${CONFIG}: disk full`)
+  expect(readJson(w, CONFIG).defaultMainModel).toBe('DS/ds-chat')
+})

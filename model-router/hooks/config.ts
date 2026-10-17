@@ -63,29 +63,42 @@ export async function updateConfig($: EngineInterface, paths: Paths, mutate: (ra
 }
 
 // /model picks persist like the built-in's (2026-10-17): a routed pick becomes the
-// default for new sessions, a Claude pick removes it. Null when saved (or nothing
-// to remove), else the reason; it never throws, so a pick never fails on a save.
-export async function saveDefaultMainModel($: EngineInterface, paths: Paths, ref: string | null): Promise<string | null> {
+// default for new sessions, a Claude pick removes it. `error` is null when saved (or
+// nothing changed); `removed` names the default a removal took away. It never throws,
+// so a pick never fails on a save.
+export type SaveDefault = { error: string | null; removed: string | null }
+
+export async function saveDefaultMainModel($: EngineInterface, paths: Paths, ref: string | null): Promise<SaveDefault> {
   try {
     const { raw } = await loadConfig($, paths)
-    if ((raw?.defaultMainModel ?? null) === ref) return null
+    const before = raw?.defaultMainModel ?? null
+    if (before === ref) return { error: null, removed: null }
     const r = await updateConfig($, paths, next => { if (ref === null) delete next.defaultMainModel; else next.defaultMainModel = ref })
-    return r.ok ? null : r.message
+    if (!r.ok) return { error: r.message, removed: null }
+    return { error: null, removed: ref === null ? before : null }
   } catch (err) {
-    return err instanceof Error ? err.message : String(err)
+    return { error: err instanceof Error ? err.message : String(err), removed: null }
   }
 }
 
-// Pure: what a /model pick of a routed model says, given saveDefaultMainModel's answer.
+// A Claude pick through /model: remove the default for new sessions and say so.
+export async function clearDefaultMainModel($: EngineInterface, paths: Paths): Promise<void> {
+  const text = clearedText(await saveDefaultMainModel($, paths, null))
+  if (text !== null) await $.ui.toast(text)
+}
+
+// Pure: what a /model pick of a routed model says, given the save's error.
 export function pickedText(ref: string, saveError: string | null): string {
   return saveError === null
     ? `Main model: ${display(ref)} (also the default for new sessions)`
     : `Main model: ${display(ref)} (could not save as default: ${saveError})`
 }
 
-// Pure: the toast for a default that could not be removed, or null.
-export const unsavedClearText = (saveError: string | null): string | null =>
-  saveError === null ? null : `Could not remove the default main model: ${saveError}`
+// Pure: the toast after a removal of the default: what it removed, why it failed, or nothing.
+export function clearedText(r: SaveDefault): string | null {
+  if (r.error !== null) return `Could not remove the default main model: ${r.error}`
+  return r.removed === null ? null : `Default for new sessions: back to Claude (removed ${display(r.removed)})`
+}
 
 export function display(ref: string): string {
   const r = parseRef(ref)

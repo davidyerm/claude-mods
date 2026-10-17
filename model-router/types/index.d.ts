@@ -21,6 +21,7 @@ declare module 'claude-code' {
     'model-router': {
       pick: Pick
       seenModel: string | null
+      watchedModel: string | null
       isStarted: boolean
       picker: PickerState
       wizard: WizardState

@@ -2,11 +2,11 @@ import type { EngineInterface } from 'claude-code'
 import { allRefs } from '../router/lib/schema.mjs'
 import { getEvents, probeRouter } from './client'
 import type { Probe, RouterEvent, RouterStatus } from './client'
-import { display, loadConfig, portOf, saveDefaultMainModel, unsavedClearText } from './config'
+import { clearDefaultMainModel, display, loadConfig, portOf } from './config'
 import { ensureRouter } from './lifecycle'
 import type { Ensure } from './lifecycle'
 import { getPaths } from './paths'
-import { clearPick, getPick, getSeenModel } from './pick'
+import { clearPick, getPick, getSeenModel, getWatchedModel, setWatchedModel } from './pick'
 import { isForSession, statusLine, toastFor } from './status'
 
 // isWired: this session's ANTHROPIC_BASE_URL is the router (read at session.start).
@@ -73,20 +73,24 @@ export async function tick($: EngineInterface, m: Monitor): Promise<void> {
     m.lastSeq = out.lastSeq
     for (const text of out.toasts) $.ui.toast(text)
   }
+  const paths = await getPaths($)
+  const model = await $.session.model()
+  const watched = await getWatchedModel($)
+  await setWatchedModel($, model)
+  // A model change the mod did not make is a built-in /model pick, with or without a
+  // routed pick: the latest /model choice wins, so the default for new sessions goes.
+  let isBuiltinPick = watched !== null && model !== watched
   const pick = await getPick($)
   if (pick !== null) {
-    const paths = await getPaths($)
     const { config } = await loadConfig($, paths)
-    const check = checkPick({ pick, refs: allRefs(config), seen: await getSeenModel($), model: await $.session.model() })
+    const check = checkPick({ pick, refs: allRefs(config), seen: await getSeenModel($), model })
     if (check !== 'keep') {
       await clearPick($)
       $.ui.toast(check.toast)
-      if (check.isBuiltinPick) {
-        const clearError = unsavedClearText(await saveDefaultMainModel($, paths, null))
-        if (clearError) $.ui.toast(clearError)
-      }
+      if (check.isBuiltinPick) isBuiltinPick = true
     }
   }
+  if (isBuiltinPick) await clearDefaultMainModel($, paths)
   await refresh($, m)
 }
 

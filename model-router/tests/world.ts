@@ -80,6 +80,8 @@ export type World = {
   sessionId: string
   model: string
   failSessionModel: boolean
+  // set: the engine refuses every move of a focus ring with this reason
+  focusDeny: string | null
   rawRun: { exitCode: number; stdout: string; stderr: string; isStdoutTruncated: boolean; isStderrTruncated: boolean } | null
   env: Record<string, string>
 }
@@ -129,6 +131,7 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
     sessionId: 'sess-1',
     model: 'claude-opus-5-5',
     failSessionModel: false,
+    focusDeny: null,
     rawRun: null,
     env: {},
   }
@@ -168,8 +171,8 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
   on('ui.log', ($, e) => { w.logs.push(e.text); return { value: undefined } })
   on('ui.open', ($, e) => { w.opened.push(e.id); return { value: { isPlaced: true } } })
   on('ui.close', ($, e) => { w.closed.push(e.id); return { value: undefined } })
-  // The focus ring: the engine lands it where the chain left it.
-  on('ui.focus', () => ({}))
+  // The focus ring: the engine lands it where the chain left it, or refuses every move.
+  on('ui.focus', () => (w.focusDeny === null ? {} : { deny: w.focusDeny }))
   on('command.register', ($, e) => { w.registered.push(e.name); return { value: { command: e.name } } })
   on('session.id', () => ({ value: w.sessionId }))
   on('session.model', () => (w.failSessionModel ? { deny: 'session.model failed' } : { value: w.model }))
