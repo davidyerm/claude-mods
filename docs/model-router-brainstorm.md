@@ -14,11 +14,13 @@ Date: 2026-10-15 · Claude Code build at time of research: 2.1.300
 | Explore context / mod API | done |
 | Clarifying questions | done (answers below) |
 | Propose approaches | done → **Approach A chosen** |
-| Present design sections | Section 1 (Architecture) **approved**, Section 2 (Data flow) **approved** |
+| Present design sections | Sections 1–4 (architecture, data flow, error handling, testing) **all approved** |
 | Spike: open risks (a), (b), (d) | **done**, see Spike results |
-| Remaining sections (data flow, error handling, testing) | not started |
-| Write spec `docs/superpowers/specs/2026-10-15-model-router-design.md` | not started |
-| User reviews spec → `superpowers:writing-plans` | not started |
+| Write spec | **done:** `docs/superpowers/specs/2026-10-16-model-router-design.md`, committed on branch `model-router` |
+| User reviews spec | **APPROVED 2026-10-16** (after review changes: `limits-cache.json` rules, then D19 limits ownership, then the answered Claude-limits question) |
+| `superpowers:writing-plans` | **NEXT**, to be done in a new session |
+
+> **The spec is now the authoritative design.** Where this file and the spec differ, the spec wins. Spec-time refinements: events are served over HTTP (`/_router/events`) as well as the file; the fallback model is encoded in the routed ID (`router:P/m#<claude-id>`); `x-router-fallback-model` was dropped; verification items V1–V7 come first in the plan.
 
 ## Goal (user's words, condensed)
 
@@ -48,9 +50,9 @@ Date: 2026-10-15 · Claude Code build at time of research: 2.1.300
 | D8 | Failure timing | Fallback to Claude only **before the first response byte**. A provider failing mid-stream just errors (no fallback). |
 | D9 | Credential safety | For routed requests, **always** drop all inbound auth headers (gateway key, `apiKeyHelper` token) plus identifying headers (`x-claude-code-session-id`) and `metadata`, then set only the provider's key. Not configurable. |
 | D10 | Compatibility strip | Per-provider configurable `strip` list. Defaults: drop `anthropic-beta`, `thinking`, `context_management`, `output_config`; **keep** `cache_control`. `/router doctor` reports which field a provider rejects. |
-| D11 | `max_tokens` clamp | Routed requests only: `max_tokens = min(requested, model.maxOutputTokens)`, never raised. If not configured: on a 400 mentioning `max_tokens`, read the limit from the error (else use 8192), retry once, remember it per model, and toast a suggestion to add it to config. Use this rather than `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, which would cap real Claude too. |
+| D11 | `max_tokens` clamp | Routed requests only: `max_tokens = min(requested, learned, policy)`, never raised. On a 400 mentioning `max_tokens`, read the limit from the error (else use 8192), retry once, and remember it per model **in memory only**. Use this rather than `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, which would cap real Claude too. *(Revised by D19: no `maxOutputTokens` in the router config.)* |
 
-| D12 | Limits split | `maxOutputTokens` / `contextWindow` **policy** moves to a **separate limits mod** that works across all models (Claude and routed). The router keeps only the **compatibility** clamp for routed models (needed for them to work at all). **Option 1 chosen:** the router exposes `POST /_router/policy`; the limits mod registers rules there and the router *executes* them, including on pass-through traffic, **only while the limits mod has registered rules** (D7 holds otherwise). The router *observes* (never modifies) pass-through errors and publishes them as events for the limits mod to learn from. The limits mod owns `learned.json`, compaction (`$.session.usage()` + `$.session.compact()`), and works without the router at a reduced level (context only). **Build the router first** with the `/_router/policy` hook point designed but unused; the limits mod gets its own brainstorm, spec and plan later. |
+| D12 | Limits split | `maxOutputTokens` / `contextWindow` **policy** moves to a **separate limits mod** that works across all models (Claude and routed). The router keeps only the **compatibility** clamp for routed models (needed for them to work at all). **Option 1 chosen:** the router exposes `POST /_router/policy`; the limits mod registers rules there and the router *executes* them, including on pass-through traffic, **only while the limits mod has registered rules** (D7 holds otherwise). The router *observes* (never modifies) pass-through errors and publishes them as events for the limits mod to learn from. The limits mod owns `limits-cache.json`, compaction (`$.session.usage()` + `$.session.compact()`), and works without the router at a reduced level (context only). **Build the router first** with the `/_router/policy` hook point designed but unused; the limits mod gets its own brainstorm, spec and plan later. |
 
 | D13 | Packaging | **Two separate plugins** (`model-router`, `model-limits`), sibling folders, **no `dependencies` link**. They talk only through the router's HTTP contract (`/_router/status`, `/_router/policy`, versioned). **One marketplace for all mods:** `C:\dev\llm\mods` root gets a single `.claude-plugin/marketplace.json` listing `rtl-mode`, `model-router`, `model-limits`. `rtl-mode`'s own marketplace.json gets replaced or merged. |
 
@@ -61,6 +63,7 @@ Date: 2026-10-15 · Claude Code build at time of research: 2.1.300
 
 | D17 | Upstream auth | User's gateway auth is **`apiKeyHelper`** (a short-lived token printed by a script; Claude Code refreshes it). The network path uses an **internal CA**: no proxy, no mTLS, no custom headers. The router is **transparent**: inbound auth headers are forwarded byte-for-byte upstream, the router stores no gateway credentials, and token refresh stays Claude Code's job. On fallback, the inbound auth headers are kept **in memory for that request only**. Upstream checks (setup/doctor) are made by the **mod via `$.model.complete`** (the real path, the session's auth). **CA:** the router must trust the internal CA. Node honours `NODE_EXTRA_CA_CERTS` (a PEM file) at startup, and the router inherits Claude Code's env. If the CA is only in the Windows cert store, start Node with `--use-system-ca`. The launcher passes it by default on Windows (verify with Node 24.13). Doctor reports an untrusted certificate specifically, with the fix. TLS inspection may also affect provider traffic; the same CA trust covers it. |
 | D18 | Local access token | Closes the gap where any local process could spend provider credit through the router. Setup generates a random token and adds `x-router-token: <token>` to **`ANTHROPIC_CUSTOM_HEADERS`** in `settings.json` env, **merging** with existing headers (newline-separated). The router **rejects routed requests** without a valid token. Pass-through still works, since it needs gateway auth anyway. The router strips the token before forwarding anywhere. The token file is user-readable only, and doctor verifies it. |
+| D19 | Limits ownership (2026-10-16) | **The router has no limit configuration**: `maxOutputTokens` is removed from `model-router.json`, and `limits-cache.json` is dropped. The router keeps learn-and-retry (it is needed for routed models to work at all) in an **in-memory learned table** (facts). model-limits owns all limit configuration and **writes** it as policy via `POST /_router/policy` (intent). It **reads** learned facts via the new `GET /_router/limits` and never writes them back. Applied limit: `min(requested, learned, policy)`. Cost: one fast 400 per model after each router restart. Spec §5.3 and §11. |
 
 ### Limits mod: router discoverability (APPROVED, belongs to the limits-mod spec)
 
@@ -71,10 +74,12 @@ The limits mod checks `GET /_router/status` at session start.
 
 The message depends on the cause: not installed → `/plugin install model-router@<marketplace>`; installed but not set up → `/router setup`; set up but down → `/router doctor`. Telling "not installed" from "not set up" needs a plugin-list or `enabledPlugins` read, **unverified**; fall back to listing both steps. Marketplace descriptions plus a README "Which do I need?" table. The router's `/router doctor` mentions model-limits once as optional.
 
-### OPEN QUESTION for the user (asked 2026-10-15; the user will answer later, do not forget)
+### ANSWERED: Claude-model limits need (asked 2026-10-15, answered 2026-10-16)
 
 > For the org's **Claude** models, is the need for the limits mod **context** (gateway rejects/caps long prompts), **output** (gateway caps `max_tokens`), or **both**?
 > If it's mostly context, the limits mod barely needs the router.
+
+**Answer (2026-10-16):** for now, assume **both**. model-limits handles context windows (compaction, in-engine) *and* output caps (policy executed by the router, including on Claude pass-through traffic).
 
 ### Pending design notes not yet presented as sections (from discussion, to fold into Section 3)
 
@@ -89,7 +94,7 @@ The message depends on the cause: not installed → `/plugin install model-route
   6. A single `upstream`: a project-level `ANTHROPIC_BASE_URL` bypasses the router, and doctor reports it.
 - State layout:
   - `~/.claude/model-router.json`: user config. **The router never writes it.**
-  - `~/.claude/model-router/learned.json`: router compatibility learning. Persistent, single writer, 30-day expiry, config takes precedence. Per D12, policy learning moves to the limits mod.
+  - Learned limits live in router memory only (D19). There is no `limits-cache.json`.
   - Circuit-breaker state is in memory only.
   - `events.jsonl` and `router.log` are rotated, with no prompts or keys.
   - The mod reads limits and health from `GET /_router/status`, not from files.
@@ -189,14 +194,20 @@ Method (throwaway, in the session scratchpad): a Node capture server on `127.0.0
   - Body keys `thinking: {type:"adaptive",display:"omitted"}`, `context_management`, `output_config: {effort:"high"}`, `metadata`, `cache_control` on blocks, and `max_tokens: 32000`.
   - The system prompt starts with an `x-anthropic-billing-header: ...` text block, and requests send 45–54 tools.
 
-  So the router needs per-provider handling for: beta header, `thinking`, `context_management`, `output_config`, `cache_control`, a **`max_tokens` clamp** (per-model `maxOutputTokens`), and possibly the billing text block.
+  So the router needs per-provider handling for: beta header, `thinking`, `context_management`, `output_config`, `cache_control`, a **`max_tokens` clamp** (learned from 400s, D19), and possibly the billing text block.
 - **New risk (e):** the engine doesn't know an unrecognized model's **context window**, so the auto-compact threshold and context % will be computed with defaults. Config should carry a `contextWindow` per model, and we need to check whether the engine exposes a way to set it (otherwise this is a known limitation).
 
 ## Next steps
 
-1. ~~Approve Architecture (Section 1)~~ **Approved.** ~~Spike~~ **Done** (see Spike results).
-2. ~~Ask where the mod lives~~ **Decided:** `C:\dev\llm\mods\model-router\`, next to `rtl-mode`.
-3. Run the **spike** on risk (a), plus (b) if cheap. Results are throwaway and get recorded here.
-4. Present the remaining design sections one at a time, each needing approval: **data flow** (request lifecycle, `/router` UX), **error handling** (fallback, router down, bad config), **testing** (router unit tests, `claude plugin test`, a manual end-to-end check against one real provider).
-5. Write the spec to `docs/superpowers/specs/2026-10-15-model-router-design.md`, self-review it, and have the user review it.
-6. Invoke `superpowers:writing-plans`.
+**Brainstorming is complete; the spec is approved (2026-10-16).** Resume in a new session as follows:
+
+1. `cd C:\dev\llm\mods`, then `git checkout model-router` (all work so far is on this branch, not pushed).
+2. Read the spec `docs/superpowers/specs/2026-10-16-model-router-design.md` in full. It is authoritative; this file is background.
+3. Load the `plugin-authoring` skill again (the mod-API types path changes on every load).
+4. Invoke **`superpowers:writing-plans`** with the spec. The plan's first tasks are verification items **V1–V7** (spec §10). Save the plan under `docs/superpowers/plans/` and commit it.
+5. The user reviews the plan and picks the execution method. No implementation code before that.
+6. The plan includes the root marketplace merge (spec §12). model-limits is **out of scope**: it gets its own brainstorm, spec and plan later.
+
+Helpers kept in the repo: `docs/model-router-spike/` holds the throwaway spike (a fake Anthropic endpoint that logs requests, plus a `turn.step` probe mod). It's reusable for V2 and V7. Run it with `node docs/model-router-spike/capture-server.mjs` (port 4199) and `ANTHROPIC_BASE_URL=http://127.0.0.1:4199`.
+
+Environment notes: `rtk` (required by the user's global CLAUDE.md) is not on the Git Bash PATH, so plain `git` was used. Commit messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.

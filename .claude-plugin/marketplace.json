@@ -1,0 +1,17 @@
+{
+  "name": "llm-mods",
+  "owner": { "name": "David Yermiyahu" },
+  "description": "Claude Code mods: Hebrew RTL display and a router for models from other providers",
+  "plugins": [
+    {
+      "name": "rtl-mode",
+      "source": "./rtl-mode",
+      "description": "Right-to-left display for Hebrew lines in the transcript, toggled by /rtl or a band button"
+    },
+    {
+      "name": "model-router",
+      "source": "./model-router",
+      "description": "Use models from other Anthropic-compatible providers: pick them in /model, override haiku/sonnet/opus/fable, with fallback to Claude"
+    }
+  ]
+}
