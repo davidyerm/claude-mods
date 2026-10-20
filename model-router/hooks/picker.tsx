@@ -133,6 +133,16 @@ export function planFocus({ values, cursor, element, isPerson }: { values: reado
   return { kind: 'pass' }
 }
 
+// Pure: the row an arrow that would scroll the pane walks to instead, or null to
+// let the pane scroll. Only the person's arrow keys qualify: no pointer (not the
+// wheel) and one row (not a page key). Wraps at the ends.
+export function arrowTarget({ values, cursor, by, isPerson, hasPointer }: { values: readonly string[]; cursor: string | undefined; by: number; isPerson: boolean; hasPointer: boolean }): string | null {
+  if (!isPerson || hasPointer || Math.abs(by) !== 1 || cursor === undefined || values.length < 2) return null
+  const at = values.indexOf(cursor)
+  if (at === -1) return null
+  return values[(at + by + values.length) % values.length] ?? null
+}
+
 export async function openPicker($: EngineInterface, m: Monitor, mode: 'model' | 'router'): Promise<CommandRunResult> {
   const { config } = await loadConfig($, await getPaths($))
   const sessionModel = await $.session.model()
@@ -169,6 +179,20 @@ async function scrollTo($: EngineInterface, key: string): Promise<void> {
     reason = String(err)
   }
   if (reason !== undefined) $.ui.log(`${SCROLL_LOG}${key}: ${reason}`, { to: 'debug' })
+}
+
+// Put the mark on another row, bring it into view and ask the ring to follow. The
+// asks are not awaited: the engine settles one move at a time, and this one may
+// start inside a ui.focus or ui.scroll hook. If the ring does not follow, the mark
+// goes back to the row the ring is on (unless a newer move took it elsewhere).
+async function moveTo($: EngineInterface, target: string, previous: string | undefined): Promise<void> {
+  await setCursor($, target)
+  void scrollTo($, target)
+  const revert = () => (previous === undefined ? undefined : update($, pickerAtom, (s): PickerState => s && (s.cursor === target ? { ...s, cursor: previous } : s)))
+  void $.ui.focus({ requestId: PICKER_PANE, key: target })
+    .then(r => (r?.deny === undefined ? undefined : revert()))
+    .catch(revert)
+    .catch(() => {})
 }
 
 async function runCommand($: EngineInterface, command: string, args = ''): Promise<void> {
@@ -328,17 +352,26 @@ export function registerPicker(on: On, m: Monitor): void {
     if (plan.kind === 'land') {
       const r = await next(e)
       if (r.deny !== undefined) return r
-      // A move of our own (the wrap) set the cursor already; a late one must not undo a newer move.
+      // A move of our own (moveTo) set the cursor already; a late one must not undo a newer move.
       if (e.origin.kind === 'person') await setCursor($, plan.cursor)
-      await scrollTo($, plan.cursor)
+      void scrollTo($, plan.cursor)
       return r
     }
-    // The wrap: the mark moves to the other end and into view, and the ring is
-    // asked to follow (its landing scrolls again). Neither ask is awaited: the
-    // engine settles one move at a time and this one is still in flight.
-    await setCursor($, plan.cursor)
-    void scrollTo($, plan.cursor)
-    void $.ui.focus({ requestId: PICKER_PANE, key: plan.cursor }).catch(() => {})
+    // The wrap: the ring stays put here and is asked to move to the other end.
+    await moveTo($, plan.cursor, cursorOf(state))
+    return {}
+  }).catch(($, e, next) => next(e))
+
+  // Where the engine would scroll the pane by an arrow (the types allow either
+  // the arrows walking a dialog's rows or scrolling its body), the arrow walks
+  // the rows instead; the landing scrolls the row into view. The wheel, the page
+  // keys and a plugin's scroll (scrollTo's) move the window as usual.
+  on('ui.scroll', { requestId: PICKER_PANE }, async ($, e, next) => {
+    const state = await read($, pickerAtom)
+    if (!state) return next(e)
+    const target = arrowTarget({ values: state.entries.map(x => x.value), cursor: cursorOf(state), by: e.by, isPerson: e.origin.kind === 'person', hasPointer: e.pointer !== undefined })
+    if (target === null) return next(e)
+    await moveTo($, target, cursorOf(state))
     return {}
   }).catch(($, e, next) => next(e))
 }

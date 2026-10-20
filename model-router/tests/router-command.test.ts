@@ -43,7 +43,7 @@ test('/router <name> and /router claude set and clear the pick', async ($, on) =
   expect((await run($, 'router', 'ds-reasoner')).text).toBe('Main model: [DS] ds-reasoner')
   await step($)
   expect(w.stepModels.at(-1)).toBe('router:DS/ds-reasoner#claude-opus-5-5')
-  expect(await band($)).toBe('main: [DS] ds-reasoner · haiku→[DS] ds-chat')
+  expect(await band($)).toBe('main: [DS] ds-reasoner \u00b7 haiku\u2192[DS] ds-chat')
   expect(w.statusLines.at(-1)).toBe(undefined)
   expect((await run($, 'router', 'claude')).text).toBe("Main model: Claude (this session's model)")
   await step($)

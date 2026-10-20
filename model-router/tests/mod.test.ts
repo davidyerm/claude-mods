@@ -30,7 +30,7 @@ test('session start: a down router is launched once through start and then used'
   const w = world(on, { isRouterUp: false, config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-chat' } })
   await start($)
   expect(w.runs.map(r => r.argv.slice(2))).toEqual([['start']])
-  expect(await band($)).toBe('main: [DS] ds-chat · haiku→[DS] ds-chat')
+  expect(await band($)).toBe('main: [DS] ds-chat \u00b7 haiku\u2192[DS] ds-chat')
   expect(w.statusLines.at(-1)).toBe(undefined)
   await step($)
   expect(w.stepModels).toEqual(['router:DS/ds-chat#claude-opus-5-5'])
@@ -232,7 +232,7 @@ for (const value of ['http://127.0.0.1:4141', 'http://localhost:4141/', 'http://
   test(`wired (${value}): everything routes as before`, async ($, on) => {
     const w = world(on, { env: { ANTHROPIC_BASE_URL: value }, config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-chat' } })
     await start($)
-    expect(await band($)).toBe('main: [DS] ds-chat · haiku→[DS] ds-chat')
+    expect(await band($)).toBe('main: [DS] ds-chat \u00b7 haiku\u2192[DS] ds-chat')
     expect(w.statusLines.at(-1)).toBe(undefined)
     await step($)
     expect((await run($, 'router', 'DS/ds-reasoner')).text).toBe('Main model: [DS] ds-reasoner')

@@ -228,20 +228,24 @@ export const ENGINE_BAND = { type: 'engine', ref: 0 } as const
 
 export const BAND_PROPS = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 5 }, view: {} } as const
 
-// The text the band above the prompt shows, or null when the plugin drew nothing
-// there (the engine's own band is left).
+// The text the band above the prompt shows, or null when no plugin drew text there
+// (only the engine's own band is left). The bands compose: every plugin's hook
+// wraps what the hooks beneath drew, so the engine's own node is in the tree
+// exactly once, whoever drew; this throws otherwise.
 export async function band($: Engine, { surface = 'terminal', hasSurvey = false }: { surface?: 'terminal' | 'desktop'; hasSurvey?: boolean } = {}): Promise<string | null> {
   const tree = await $.ui.render({ surface, component: 'AbovePrompt', requestId: 'band', props: { ...BAND_PROPS, hasSurvey } })
-  if (JSON.stringify(tree) === JSON.stringify(ENGINE_BAND)) return null
-  // The shown text: the string children, in order.
+  // The shown text: the string children, in order, past the engine's node.
   const texts: string[] = []
+  let engineNodes = 0
   const walk = (node: unknown) => {
     if (typeof node === 'string') { texts.push(node); return }
     if (node === null || typeof node !== 'object') return
+    if ((node as { type?: unknown }).type === 'engine') { engineNodes += 1; return }
     for (const child of (node as { children?: unknown[] }).children ?? []) walk(child)
   }
   walk(tree)
-  return texts.join('')
+  if (engineNodes !== 1) throw new Error(`the band holds ${engineNodes} engine nodes, not 1: ${JSON.stringify(tree)}`)
+  return texts.length === 0 ? null : texts.join('')
 }
 
 export const run = ($: Engine, command: string, args = '') =>

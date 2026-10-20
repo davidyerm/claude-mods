@@ -52,12 +52,20 @@ export const register: Register = (on, options) => {
 
   // The band above the prompt: the normal info, one dim line. A problem goes to the
   // status line instead (refresh), and the band then draws nothing of its own.
+  // The band is one instance for every plugin: the line goes above what the hooks
+  // beneath drew (another mod's band, the engine's own), never in its place.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
+    const below = await next(e)
     const text = await getBand($)
-    if (!text) return next(e)
-    const { Text } = $.ui.resolve(e)
-    return <Text dimColor wrap="truncate">{text}</Text>
+    if (!text) return below
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column">
+        <Text dimColor wrap="truncate">{text}</Text>
+        {below}
+      </Box>
+    )
   })
 
   on('command.run', { command: 'router' }, async ($, e) => runRouterCommand($, m, parseRouterArgs(e.args)))

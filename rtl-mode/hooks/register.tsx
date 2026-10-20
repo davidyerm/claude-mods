@@ -45,14 +45,20 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
+    // The band is one instance for every plugin: the toggle goes above what the
+    // hooks beneath drew (another mod's band, the engine's own), never in its place.
+    const below = await next(e)
     const value = await read($, isOn)
     const { Box, Button, Text } = $.ui.resolve(e)
     return (
-      <Box>
-        <Button key="rtl-toggle" plain onPress={() => setMode($, 'toggle')}>
-          RTL{' '}
-          {value ? <Text color={ON_COLOR}>ON</Text> : <Text dimColor>OFF</Text>}
-        </Button>
+      <Box flexDirection="column">
+        <Box>
+          <Button key="rtl-toggle" plain onPress={() => setMode($, 'toggle')}>
+            RTL{' '}
+            {value ? <Text color={ON_COLOR}>ON</Text> : <Text dimColor>OFF</Text>}
+          </Button>
+        </Box>
+        {below}
       </Box>
     )
   })
