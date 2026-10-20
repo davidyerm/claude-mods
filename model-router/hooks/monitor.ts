@@ -1,4 +1,6 @@
+import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
+import type { Band } from '../types'
 import { allRefs } from '../router/lib/schema.mjs'
 import { getEvents, probeRouter } from './client'
 import type { Probe, RouterEvent, RouterStatus } from './client'
@@ -7,7 +9,7 @@ import { ensureRouter } from './lifecycle'
 import type { Ensure } from './lifecycle'
 import { getPaths } from './paths'
 import { clearPick, getPick, getSeenModel, getWatchedModel, setWatchedModel, takeOwnModelChange } from './pick'
-import { isForSession, statusLine, toastFor } from './status'
+import { hasProblem, isForSession, statusLine, toastFor } from './status'
 
 // isWired: this session's ANTHROPIC_BASE_URL is the router (read at session.start).
 export type Monitor = { status: RouterStatus | null; lastSeq: number; isDown: boolean; port: number; isWired: boolean }
@@ -59,9 +61,23 @@ export async function reprobe($: EngineInterface, m: Monitor): Promise<void> {
   if (probe.kind === 'ours') { m.status = probe.status; m.isDown = false }
 }
 
+// The band above the prompt: the line while there is no problem, else null (the
+// status line carries it then). read/update on this atom stay in this file.
+const bandAtom = atom({ plugin: 'model-router', key: 'band' } as const, null as Band)
+
+export async function getBand($: EngineInterface): Promise<Band> {
+  return read($, bandAtom)
+}
+
+// The line goes to one place: the band while all is well, the status line (drawn
+// as a warning) only while there is a problem. The other is cleared.
 export async function refresh($: EngineInterface, m: Monitor): Promise<void> {
   const { config } = await loadConfig($, await getPaths($))
-  $.ui.status(statusLine({ pick: await getPick($), config, status: m.status, isDown: m.isDown, isWired: m.isWired }))
+  const input = { pick: await getPick($), config, status: m.status, isDown: m.isDown, isWired: m.isWired }
+  const line = statusLine(input)
+  const isProblem = hasProblem(input)
+  await update($, bandAtom, (): Band => (isProblem ? null : line))
+  $.ui.status(isProblem ? line : undefined)
 }
 
 // Every 2 s: this session's events as toasts, and the pick's validity.

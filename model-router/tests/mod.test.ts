@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { CONFIG, CONFIG_JSON, down, routerStatus, run, start, step, up, world } from './world'
+import { band, BAND_PROPS, CONFIG, CONFIG_JSON, down, routerStatus, run, start, step, up, world } from './world'
 
 // Hook-driven tests of register.tsx: session.start, turn.step and the monitor
 // timers. State is observed through effects only (mod-testing-ruling.md).
@@ -14,7 +14,8 @@ test('session start registers /router, finds the router and draws the status lin
   await start($)
   expect(w.registered).toContain('router')
   expect(w.runs.length).toBe(0)
-  expect(w.statusLines.at(-1)).toBe(PLAIN_LINE)
+  expect(await band($)).toBe(PLAIN_LINE)
+  expect(w.statusLines.at(-1)).toBe(undefined)
 })
 
 test('session start launches a missing router; a failed launch shows DOWN', async ($, on) => {
@@ -22,13 +23,15 @@ test('session start launches a missing router; a failed launch shows DOWN', asyn
   w.tool = sub => (sub === 'start' ? { ok: false, error: 'node not found' } : undefined)
   await start($)
   expect(w.statusLines.at(-1)).toBe(DOWN)
+  expect(await band($)).toBe(null)
 })
 
 test('session start: a down router is launched once through start and then used', async ($, on) => {
   const w = world(on, { isRouterUp: false, config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-chat' } })
   await start($)
   expect(w.runs.map(r => r.argv.slice(2))).toEqual([['start']])
-  expect(w.statusLines.at(-1)).toBe('main: [DS] ds-chat · haiku→[DS] ds-chat')
+  expect(await band($)).toBe('main: [DS] ds-chat · haiku→[DS] ds-chat')
+  expect(w.statusLines.at(-1)).toBe(undefined)
   await step($)
   expect(w.stepModels).toEqual(['router:DS/ds-chat#claude-opus-5-5'])
 })
@@ -40,6 +43,7 @@ test('session start: a foreign program on the port is not launched over; the rea
   expect(w.runs.length).toBe(0)
   expect(w.logs).toContain('model-router: port 4141 is used by another program; set "port" in model-router.json')
   expect(w.statusLines.at(-1)).toBe(DOWN)
+  expect(await band($)).toBe(null)
 })
 
 test('session start: another router version is handed to the launcher, and the new status is used', async ($, on) => {
@@ -53,7 +57,8 @@ test('session start: another router version is handed to the launcher, and the n
   }
   await start($)
   expect(w.runs.map(r => r.argv.slice(2))).toEqual([['start']])
-  expect(w.statusLines.at(-1)).toBe(PLAIN_LINE)
+  expect(await band($)).toBe(PLAIN_LINE)
+  expect(w.statusLines.at(-1)).toBe(undefined)
 })
 
 // --- pick state (Task 21) and turn.step ---
@@ -69,7 +74,8 @@ test('defaultMainModel becomes the pick once, not again after a reload', async (
   await start($)
   await step($)
   expect(w.stepModels.at(-1)).toBe('claude-opus-5-5')
-  expect(w.statusLines.at(-1)).toBe(PLAIN_LINE)
+  expect(await band($)).toBe(PLAIN_LINE)
+  expect(w.statusLines.at(-1)).toBe(undefined)
 })
 
 test('turn.step: no pick leaves the model alone', async ($, on) => {
@@ -148,7 +154,8 @@ test('a Claude model picked in /model clears the pick on the next tick', async (
   w.model = 'claude-sonnet-5-5'
   await w.clock.advance(2000)
   expect(w.toasts).toContain('Main model back to Claude (claude-sonnet-5-5 picked in /model)')
-  expect(w.statusLines.at(-1)).toBe(PLAIN_LINE)
+  expect(await band($)).toBe(PLAIN_LINE)
+  expect(w.statusLines.at(-1)).toBe(undefined)
 })
 
 test('the 10 s health timer respawns the router', async ($, on) => {
@@ -158,7 +165,8 @@ test('the 10 s health timer respawns the router', async ($, on) => {
   await w.clock.advance(10_000)
   expect(w.toasts).toContain('model-router restarted')
   expect(w.runs.map(r => r.argv.slice(2))).toEqual([['start']])
-  expect(w.statusLines.at(-1)).toBe(PLAIN_LINE)
+  expect(await band($)).toBe(PLAIN_LINE)
+  expect(w.statusLines.at(-1)).toBe(undefined)
 })
 
 test('the 10 s health timer shows DOWN when the respawn fails', async ($, on) => {
@@ -169,6 +177,7 @@ test('the 10 s health timer shows DOWN when the respawn fails', async ($, on) =>
   await w.clock.advance(10_000)
   expect(w.toasts).not.toContain('model-router restarted')
   expect(w.statusLines.at(-1)).toBe(DOWN)
+  expect(await band($)).toBe(null)
 })
 
 test('session start: a failed launch on a reload drops the old status, so the pick is not routed', async ($, on) => {
@@ -178,6 +187,7 @@ test('session start: a failed launch on a reload drops the old status, so the pi
   w.tool = sub => (sub === 'start' ? { ok: false, error: 'node not found' } : undefined)
   await start($)
   expect(w.statusLines.at(-1)).toBe(DOWN)
+  expect(await band($)).toBe(null)
   await step($)
   expect(w.stepModels.at(-1)).toBe('claude-opus-5-5')
 })
@@ -194,6 +204,7 @@ for (const [name, value] of [['unset', undefined], ['a gateway', 'https://gw.exa
     await step($)
     expect(w.stepModels).toEqual(['claude-opus-5-5'])
     expect(w.statusLines.at(-1)).toBe(NOT_ACTIVE_LINE)
+    expect(await band($)).toBe(null)
   })
 
   test(`unwired (${name}): /router and /model with a routed name refuse and set no pick`, async ($, on) => {
@@ -204,6 +215,7 @@ for (const [name, value] of [['unset', undefined], ['a gateway', 'https://gw.exa
     await step($)
     expect(w.stepModels).toEqual(['claude-opus-5-5'])
     expect(w.statusLines.at(-1)).toBe(NOT_ACTIVE_LINE)
+    expect(await band($)).toBe(null)
   })
 }
 
@@ -220,7 +232,8 @@ for (const value of ['http://127.0.0.1:4141', 'http://localhost:4141/', 'http://
   test(`wired (${value}): everything routes as before`, async ($, on) => {
     const w = world(on, { env: { ANTHROPIC_BASE_URL: value }, config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-chat' } })
     await start($)
-    expect(w.statusLines.at(-1)).toBe('main: [DS] ds-chat · haiku→[DS] ds-chat')
+    expect(await band($)).toBe('main: [DS] ds-chat · haiku→[DS] ds-chat')
+    expect(w.statusLines.at(-1)).toBe(undefined)
     await step($)
     expect((await run($, 'router', 'DS/ds-reasoner')).text).toBe('Main model: [DS] ds-reasoner')
     await step($)
@@ -235,7 +248,8 @@ test('an invalid config with a valid port: the router is ensured and monitored o
   const statusUrls = w.fetches.filter(f => f.url.includes('/_router/status')).map(f => f.url)
   expect(statusUrls.length).toBeGreaterThan(1)
   expect(statusUrls.every(u => u.startsWith('http://127.0.0.1:5000/'))).toBe(true)
-  expect(w.statusLines.at(-1)).toBe('router: /router to pick')
+  expect(await band($)).toBe('router: /router to pick')
+  expect(w.statusLines.at(-1)).toBe(undefined)
 })
 
 // --- a just-added provider routes at once (final fix I5) ---
@@ -254,6 +268,58 @@ test('a pick re-probes the router: the new state shows without a clock advance',
   up(w, routerStatus({ providers: [{ name: 'DS', available: true, breaker: 'open' }, { name: 'OR', available: true, breaker: 'closed' }] }))
   await run($, 'router', 'DS/ds-chat')
   expect(w.statusLines.at(-1)).toBe('main: [DS] ⚠  paused · haiku→[DS] ⚠  paused')
+  expect(await band($)).toBe(null)
   await step($)
   expect(w.stepModels).toEqual(['claude-opus-5-5'])
+})
+
+// --- the band above the prompt holds normal info; the status line only problems (2026-10-20) ---
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`${surface}: a healthy pick shows in the band, dim, and the status line is empty`, async ($, on) => {
+    const w = world(on, { config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-chat' } })
+    await start($)
+    expect(await band($, { surface })).toBe('main: [DS] ds-chat \u00b7 haiku\u2192[DS] ds-chat')
+    const tree = await $.ui.render({ surface, component: 'AbovePrompt', requestId: 'band', props: BAND_PROPS })
+    expect(JSON.stringify(tree)).toContain('"dimColor":true')
+    expect(w.statusLines.at(-1)).toBe(undefined)
+  })
+}
+
+test('a survey holds the band: the plugin draws nothing there', async ($, on) => {
+  world(on)
+  await start($)
+  expect(await band($)).toBe(PLAIN_LINE)
+  expect(await band($, { hasSurvey: true })).toBe(null)
+})
+
+test('a paused override provider: the status line carries the line, the band draws nothing', async ($, on) => {
+  const w = world(on, { isRouterUp: false })
+  up(w, routerStatus({ providers: [{ name: 'DS', available: true, breaker: 'open' }, { name: 'OR', available: true, breaker: 'closed' }] }))
+  await start($)
+  expect(w.statusLines.at(-1)).toBe('router: /router to pick \u00b7 haiku\u2192[DS] \u26a0  paused')
+  expect(await band($)).toBe(null)
+})
+
+test('an unavailable pick provider: the status line carries the line, the band draws nothing', async ($, on) => {
+  const w = world(on, { config: { ...CONFIG_JSON, overrides: {} } })
+  up(w, routerStatus({ providers: [{ name: 'DS', available: true, breaker: 'closed' }, { name: 'OR', available: false, reason: 'env OR_KEY not set', breaker: 'closed' }] }))
+  await start($)
+  await run($, 'router', 'OR/ds-chat')
+  expect(w.statusLines.at(-1)).toBe('main: [OR] \u26a0  unavailable')
+  expect(await band($)).toBe(null)
+})
+
+test('a problem that clears: the status line empties and the band shows the line again', async ($, on) => {
+  const w = world(on)
+  await start($)
+  down(w)
+  w.tool = sub => (sub === 'start' ? { ok: false, error: 'node not found' } : undefined)
+  await w.clock.advance(10_000)
+  expect(w.statusLines.at(-1)).toBe(DOWN)
+  expect(await band($)).toBe(null)
+  w.tool = () => undefined
+  await w.clock.advance(10_000)
+  expect(w.statusLines.at(-1)).toBe(undefined)
+  expect(await band($)).toBe(PLAIN_LINE)
 })

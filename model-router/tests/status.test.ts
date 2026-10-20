@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { validateConfig } from '../router/lib/schema.mjs'
 import type { Config } from '../router/lib/schema.mjs'
-import { DOWN_LINE, isForSession, label, statusLine, toastFor } from '../hooks/status'
+import { DOWN_LINE, hasProblem, isForSession, label, statusLine, toastFor } from '../hooks/status'
 import { checkPick, healthOutcome, needsRespawn, toastsFor } from '../hooks/monitor'
 import { CONFIG_JSON, routerStatus } from './world'
 
@@ -33,6 +33,27 @@ test('status line: an unavailable provider and a down router', () => {
   expect(statusLine({ pick: null, config, status: missing, isDown: false })).toBe('router: /router to pick · haiku→[DS] ⚠  unavailable')
   expect(statusLine({ pick: 'DS/ds-chat', config, status: null, isDown: true })).toBe(DOWN_LINE)
   expect(DOWN_LINE).toBe('model-router DOWN — /router doctor')
+})
+
+test('hasProblem: a healthy pick, no pick, or a provider the status does not list yet is no problem', () => {
+  expect(hasProblem({ pick: 'DS/ds-chat', config, status: routerStatus(), isDown: false })).toBe(false)
+  expect(hasProblem({ pick: null, config, status: routerStatus(), isDown: false })).toBe(false)
+  expect(hasProblem({ pick: null, config: noOverrides, status: routerStatus(), isDown: false })).toBe(false)
+  expect(hasProblem({ pick: 'DS/ds-chat', config, status: routerStatus({ providers: [] }), isDown: false })).toBe(false)
+})
+
+test('hasProblem: DOWN, not active, and a paused or unavailable pick or override provider are problems', () => {
+  const paused = routerStatus({ providers: [{ name: 'DS', available: true, breaker: 'open' }] })
+  const missing = routerStatus({ providers: [{ name: 'DS', available: false, reason: 'env DS_KEY not set', breaker: 'closed' }] })
+  const orPaused = routerStatus({ providers: [{ name: 'DS', available: true, breaker: 'closed' }, { name: 'OR', available: true, breaker: 'open' }] })
+  expect(hasProblem({ pick: null, config, status: null, isDown: true })).toBe(true)
+  expect(hasProblem({ pick: null, config: noOverrides, status: routerStatus(), isDown: false, isWired: false })).toBe(true)
+  // the override's provider alone
+  expect(hasProblem({ pick: null, config, status: paused, isDown: false })).toBe(true)
+  expect(hasProblem({ pick: null, config, status: missing, isDown: false })).toBe(true)
+  // the pick's provider alone
+  expect(hasProblem({ pick: 'OR/ds-chat', config: noOverrides, status: orPaused, isDown: false })).toBe(true)
+  expect(hasProblem({ pick: 'DS/ds-chat', config: noOverrides, status: orPaused, isDown: false })).toBe(false)
 })
 
 test('toasts follow spec 7.7', () => {

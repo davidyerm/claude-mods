@@ -27,6 +27,19 @@ export function statusLine({ pick, config, status, isDown, isWired = true }: { p
   return parts.join(' · ')
 }
 
+// Pure: does the status line have a problem to show? DOWN, not active, or a pick or
+// override whose provider is paused or unavailable (the lines with the warning label).
+// Anything else is normal info, which the band above the prompt holds instead.
+export function hasProblem({ pick, config, status, isDown, isWired = true }: { pick: string | null; config: Config; status: RouterStatus | null; isDown: boolean; isWired?: boolean }): boolean {
+  if (!isWired || isDown) return true
+  const refs = [pick, ...FAMILIES.map(f => config.overrides[f])]
+  return refs.some(ref => {
+    if (!ref) return false
+    const state = providerState(status, ref)
+    return state === 'paused' || state === 'unavailable'
+  })
+}
+
 export const isForSession = (ev: RouterEvent, sessionId: string) => ev.session === undefined || ev.session === sessionId
 
 export function toastFor(ev: RouterEvent): string | null {

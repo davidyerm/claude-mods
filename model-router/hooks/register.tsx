@@ -3,7 +3,7 @@ import { parseRouterArgs, runRouterCommand } from './commands'
 import { registerWizard } from './add'
 import { ambiguousText, clearDefaultMainModel, findModel, loadConfig, pickedText, portOf, saveDefaultMainModel } from './config'
 import { ensureRouter } from './lifecycle'
-import { health, newMonitor, refresh, reprobe, tick } from './monitor'
+import { getBand, health, newMonitor, refresh, reprobe, tick } from './monitor'
 import { getPaths } from './paths'
 import { openPicker, registerPicker } from './picker'
 import { isWiredTo } from './client'
@@ -48,6 +48,16 @@ export const register: Register = (on, options) => {
     $.clock.every(2_000, () => void tick($, m))
     $.clock.every(10_000, () => void health($, m))
     return next(e)
+  })
+
+  // The band above the prompt: the normal info, one dim line. A problem goes to the
+  // status line instead (refresh), and the band then draws nothing of its own.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) return next(e)
+    const text = await getBand($)
+    if (!text) return next(e)
+    const { Text } = $.ui.resolve(e)
+    return <Text dimColor wrap="truncate">{text}</Text>
   })
 
   on('command.run', { command: 'router' }, async ($, e) => runRouterCommand($, m, parseRouterArgs(e.args)))

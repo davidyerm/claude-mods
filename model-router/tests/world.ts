@@ -179,6 +179,8 @@ export function world(on: On, { env = {}, files = {}, config = CONFIG_JSON, isRo
   on('ui.close', ($, e) => { w.closed.push(e.id); return { value: undefined } })
   // The focus ring: the engine lands it where the chain left it, or refuses every move.
   on('ui.focus', () => (w.focusDeny === null ? {} : { deny: w.focusDeny }))
+  // The band above the prompt with no plugin drawing: the engine's own (ENGINE_BAND).
+  on('ui.render', { component: 'AbovePrompt' }, () => ENGINE_BAND)
   // A window move (ui.scroll is an engine event, not an op): it moves.
   on('ui.scroll', ($, e) => { w.scrolls.push({ ...e }); return {} })
   on('command.register', ($, e) => { w.registered.push(e.name); return { value: { command: e.name } } })
@@ -219,6 +221,27 @@ function builtinTool(w: World, sub: string, args: readonly string[], stdin: stri
     case 'probe': return { ok: true, status: 200 }
     default: return { ok: false, error: `no stub for ${sub}` }
   }
+}
+
+// What the band above the prompt draws when no plugin draws there.
+export const ENGINE_BAND = { type: 'engine', ref: 0 } as const
+
+export const BAND_PROPS = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 5 }, view: {} } as const
+
+// The text the band above the prompt shows, or null when the plugin drew nothing
+// there (the engine's own band is left).
+export async function band($: Engine, { surface = 'terminal', hasSurvey = false }: { surface?: 'terminal' | 'desktop'; hasSurvey?: boolean } = {}): Promise<string | null> {
+  const tree = await $.ui.render({ surface, component: 'AbovePrompt', requestId: 'band', props: { ...BAND_PROPS, hasSurvey } })
+  if (JSON.stringify(tree) === JSON.stringify(ENGINE_BAND)) return null
+  // The shown text: the string children, in order.
+  const texts: string[] = []
+  const walk = (node: unknown) => {
+    if (typeof node === 'string') { texts.push(node); return }
+    if (node === null || typeof node !== 'object') return
+    for (const child of (node as { children?: unknown[] }).children ?? []) walk(child)
+  }
+  walk(tree)
+  return texts.join('')
 }
 
 export const run = ($: Engine, command: string, args = '') =>
