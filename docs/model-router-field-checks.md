@@ -103,7 +103,7 @@ The picker opens as a **dialog** (`focus`, `closeOnEscape`, `holdToasts`, and `r
 
 **Claude: give the human these steps, then wait for their notes.**
 
-1. In a **tall** terminal (40+ rows), type `/model`. Check:
+1. Before opening the picker, look above the prompt (changed 2026-10-20). With a healthy router, the dim band above the prompt shows the line (`router: /router to pick`, or `main: [P] m` plus any overrides), and the status line has **no** yellow `⚠ model-router: …` entry. That status line appears only for a problem: DOWN, not active, or a paused or unavailable provider; then the band shows nothing from the mod. Then, in a **tall** terminal (40+ rows), type `/model`. Check:
    - the title "Select model", the dim subtitle, numbered rows, and the footer `Enter to confirm · Esc to exit · manage: /router`;
    - `✔` and `❯` on the current model.
 2. Press ↓ a few times. `❯` should follow the highlighted row. At the last row ↓ should wrap to the first; at the first row ↑ should wrap to the last. After a wrap and after a scroll, press Enter: the row chosen must be the one marked ❯. (Then undo the pick: `/router claude`, or `/model sonnet` and the step 5 check if it was a `/model` routed pick.)
@@ -112,7 +112,7 @@ The picker opens as a **dialog** (`focus`, `closeOnEscape`, `holdToasts`, and `r
 5. Type `/model`, move to a routed row and press Enter. The toast should say `(also the default for new sessions)`, and `~/.claude/model-router.json` now holds `"defaultMainModel"`. Then type `/model sonnet` to undo it. A toast should say `Default for new sessions: back to Claude (removed [P] m)`.
    - Check: `defaultMainModel` is gone from `~/.claude/model-router.json`. If it was set before this check, put it back with `/router default <model>`.
 6. With a disabled row (for example a provider whose key is unset, so it is "unavailable"), check that it is dim, keeps its reason, and that choosing it only toasts the reason.
-7. Shrink the terminal to about 12 rows and type `/router`. Check that the heading and the footer still show, and `↓ more` appears. Moving down past the last visible row should scroll the window and show `↑ more`. Digits only reach rows that are visible: a digit for a row scrolled out of the window does nothing. After a wrap and after a scroll, press Enter: the row chosen must be the one marked ❯.
+7. Shrink the terminal to about 12 rows and type `/router` (changed 2026-10-20: the picker draws every row and the pane scrolls; there are no `↑ more` / `↓ more` rows). Press ↓ repeatedly: `❯` should move one row at a time through **all** rows down to `Doctor`, the pane scrolling so the `❯` row stays in view, without getting stuck. At the last row ↓ should wrap to the first row, and the pane should scroll back to the top. ↑ from the first row should wrap to the last. After a wrap and after a scroll, press Enter: the row chosen must be the one marked ❯.
 8. Note anything that differs: the engine draws `1:` (not `1.`) before each row; rows past 9 show a dim `10: ` and have no digit key.
 
 Record the result as row "C2 picker" in `docs/model-router-verification.md`. If the arrows only scroll the pane and don't move between rows, note it: the fallback is digit keys plus Tab, and the fix is to draw the rows in a `Client` surface module.

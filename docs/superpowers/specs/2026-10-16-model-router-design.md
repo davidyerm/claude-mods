@@ -304,6 +304,8 @@ A subcommand name beats a same-named model; the user then writes `Provider/model
 - A paused provider appears as `[DeepSeek] ⚠  paused` (**two spaces** after ⚠).
 - When the router is down: `model-router DOWN — /router doctor`.
 
+> **2026-10-20 change (user decision):** Claude Code draws every plugin `$.ui.status` as a yellow `⚠ model-router: …` line, which a plugin can't style. So normal info now goes in a dim band above the prompt (an `AbovePrompt` render hook), and the status line is used only for problems: DOWN, `router: not active — /router setup, then restart Claude Code`, or a pick or override whose provider is paused or unavailable (the full line, with the `⚠  paused` / `⚠  unavailable` labels). While there is no problem the status line is cleared (`$.ui.status(undefined)`) and the band shows the line above, e.g. `main: [DS] ds-chat · haiku→[DS] ds-chat` or `router: /router to pick`. The two never show the same text: with a problem the band draws nothing. The strings are unchanged.
+
 **Toasts** come from events:
 
 | Event | Toast |
