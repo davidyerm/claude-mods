@@ -11,12 +11,10 @@ import { getPaths } from './paths'
 import { clearPick, getPick, NOT_ACTIVE_TEXT, expectOwnModelChange, providerState, setPick } from './pick'
 
 export const PICKER_PANE = 'model-router-picker'
+// The debug-log line a refused scroll leaves: this, the row's key, the reason.
+export const SCROLL_LOG = 'model-router: picker scroll to '
 // read/update on this atom stay in this file (the engine allows them only beside the atom).
 export const pickerAtom = atom({ plugin: 'model-router', key: 'picker' } as const, null as PickerState)
-
-// The keys of the two scroll hints: Buttons, so the focus ring can step onto them.
-export const MORE_UP = 'more:up'
-export const MORE_DOWN = 'more:down'
 
 type EntriesInput = { mode: 'model' | 'router'; config: Config; status: RouterStatus | null; sessionModel: string; pick: string | null; isWired?: boolean }
 
@@ -115,42 +113,19 @@ export function contentRows(state: NonNullable<PickerState>, columns = 80): numb
   return 1 + subtitleLines + 1 + pickerRows(state).length + (state.notice ? 1 : 0) + 1 + 1
 }
 
-export type PaneLayout = { showSubtitle: boolean; start: number; end: number; hasAbove: boolean; hasBelow: boolean }
-
-// Pure: which rows fit the pane. The heading and the footer always show; the
-// subtitle and its blank lines go first in a short pane, then the rows are
-// windowed around the cursor with a hint row above and below.
-export function paneLayout({ rowCount, cursorRow, bodyRows, subtitleLines }: { rowCount: number; cursorRow: number; bodyRows?: number; subtitleLines: number }): PaneLayout {
-  const all = (showSubtitle: boolean): PaneLayout => ({ showSubtitle, start: 0, end: rowCount, hasAbove: false, hasBelow: false })
-  // heading, subtitle lines, a blank line above and below the rows, footer
-  if (bodyRows === undefined || rowCount + subtitleLines + 4 <= bodyRows) return all(true)
-  // heading and footer alone
-  const room = bodyRows - 2
-  if (rowCount <= room) return all(false)
-  // two rows for the scroll hints
-  const size = Math.max(1, room - 2)
-  const cursor = Math.min(Math.max(cursorRow, 0), rowCount - 1)
-  const start = Math.min(Math.max(cursor - Math.floor((size - 1) / 2), 0), rowCount - size)
-  const end = start + size
-  return { showSubtitle: false, start, end, hasAbove: start > 0, hasBelow: end < rowCount }
-}
-
 export type FocusPlan =
   | { kind: 'pass' }
   | { kind: 'land'; cursor: string }
   | { kind: 'refocus'; cursor: string }
 
 // Pure: what a move of the pane's focus ring does to the cursor. `values` are the
-// entries in order, `drawn` those drawn now. Onto a row: the cursor follows. Onto a
-// scroll hint: the cursor steps past the window. Off the rows at either end (onto
-// the engine's own stops): it wraps to the other end. A refocus keeps the ring where
-// it is and moves it with $.ui.focus: the engine refuses a rewrite that names an
-// element where the move named none.
-export function planFocus({ values, drawn, cursor, element, isPerson }: { values: readonly string[]; drawn: readonly string[]; cursor: string | undefined; element: string | undefined; isPerson: boolean }): FocusPlan {
+// entries in order, every one drawn. Onto a row: the cursor follows. Off the rows at
+// either end (onto the engine's own stops): it wraps to the other end. A refocus
+// keeps the ring where it is and moves it with $.ui.focus: the engine refuses a
+// rewrite that names an element where the move named none.
+export function planFocus({ values, cursor, element, isPerson }: { values: readonly string[]; cursor: string | undefined; element: string | undefined; isPerson: boolean }): FocusPlan {
   if (element !== undefined && values.includes(element)) return { kind: 'land', cursor: element }
   const go = (target: string | undefined): FocusPlan => (target === undefined ? { kind: 'pass' } : { kind: 'refocus', cursor: target })
-  if (element === MORE_UP) return go(values[values.indexOf(drawn[0] ?? '') - 1])
-  if (element === MORE_DOWN) { const last = values.indexOf(drawn.at(-1) ?? ''); return last === -1 ? { kind: 'pass' } : go(values[last + 1]) }
   if (!isPerson || cursor === undefined || values.length < 2) return { kind: 'pass' }
   const at = values.indexOf(cursor)
   if (at === values.length - 1) return go(values[0])
@@ -170,6 +145,7 @@ export async function openPicker($: EngineInterface, m: Monitor, mode: 'model' |
   // A dialog the person answers and leaves: it takes the keys, the arrows walk its
   // rows (it opens as tall as its content), toasts wait until it closes.
   await $.ui.open({ id: PICKER_PANE, title: mode === 'model' ? 'Select model' : 'model-router', focus: true, closeOnEscape: true, holdToasts: true, rows: contentRows(state) })
+  if (state.cursor !== undefined) await scrollTo($, state.cursor)
   return {}
 }
 
@@ -182,21 +158,17 @@ async function setCursor($: EngineInterface, cursor: string): Promise<void> {
   await update($, pickerAtom, (s): PickerState => s && { ...s, cursor })
 }
 
-// Put the ring on another row: the cursor moves first, so a row outside the window
-// is drawn, then the ring is asked to follow. The ask is not awaited: the engine
-// settles one move at a time, and this one may start inside a ui.focus hook.
-// If the ring does not follow, the cursor goes back, so the mark stays on the focused row.
-async function stepTo($: EngineInterface, cursor: string, previous: string | undefined): Promise<void> {
-  await setCursor($, cursor)
-  void $.ui.focus({ requestId: PICKER_PANE, key: cursor })
-    .then(r => (r.deny === undefined ? undefined : Promise.reject(new Error(r.deny))))
-    .catch(() => revertCursor($, cursor, previous))
-    .catch(() => {})
-}
-
-async function revertCursor($: EngineInterface, cursor: string, previous: string | undefined): Promise<void> {
-  if (previous === undefined) return
-  await update($, pickerAtom, (s): PickerState => s && (s.cursor === cursor ? { ...s, cursor: previous } : s))
+// Bring a row into view in the pane: the pane draws every row and the engine
+// scrolls its body. A refusal (the pane not drawn yet, a newer move) changes
+// nothing else: it goes to the debug log only.
+async function scrollTo($: EngineInterface, key: string): Promise<void> {
+  let reason: string | undefined
+  try {
+    reason = (await $.ui.scroll({ in: PICKER_PANE, to: { key }, block: 'nearest' })).deny
+  } catch (err) {
+    reason = String(err)
+  }
+  if (reason !== undefined) $.ui.log(`${SCROLL_LOG}${key}: ${reason}`, { to: 'debug' })
 }
 
 async function runCommand($: EngineInterface, command: string, args = ''): Promise<void> {
@@ -295,9 +267,6 @@ export async function choose($: EngineInterface, m: Monitor, value: string): Pro
 }
 
 export function registerPicker(on: On, m: Monitor): void {
-  // The entries the last drawing showed, for the focus hook's window arithmetic.
-  let drawn: string[] = []
-
   on('ui.render', { component: 'Pane', requestId: PICKER_PANE }, async ($, e) => {
     // Mobile draws no Select or Input yet (types: Elements.mobile): a text fallback.
     if (e.surface === 'mobile') {
@@ -307,30 +276,21 @@ export function registerPicker(on: On, m: Monitor): void {
     const state = await read($, pickerAtom)
     const { Box, Text, Button } = $.ui.resolve(e)
     if (!state) return <Text dimColor>Nothing to pick. Run /model or /router.</Text>
-    const props = e.props as { scroll?: { bodyRows?: number }; bodyColumns?: number }
+    const props = e.props as { bodyColumns?: number }
     const columns = Math.max(20, props.bodyColumns ?? 80)
+    // Every row is drawn: the engine scrolls a body taller than the pane, and the
+    // focus ring can step onto any row.
     const rows = pickerRows(state)
     const cursor = cursorOf(state)
     const subtitle = paneSubtitle(state)
-    const layout = paneLayout({
-      rowCount: rows.length,
-      cursorRow: rows.findIndex(r => r.kind === 'entry' && r.value === cursor),
-      bodyRows: props.scroll?.bodyRows === undefined ? undefined : props.scroll.bodyRows - (state.notice ? 1 : 0),
-      subtitleLines: subtitle ? Math.ceil(subtitle.length / columns) : 0,
-    })
-    const shown = rows.slice(layout.start, layout.end)
-    drawn = shown.flatMap(r => (r.kind === 'entry' ? [r.value] : []))
     // Descriptions line up after the longest label that has one (the actions have none).
     const width = Math.max(0, ...rows.map(r => (r.kind === 'entry' && r.description ? r.label.length : 0)))
-    const step = (target: string | undefined) => { if (target !== undefined) void stepTo($, target, cursor) }
-    const values = state.entries.map(x => x.value)
     return (
       <Box flexDirection="column">
         <Text bold>{paneHeading(state)}</Text>
-        {subtitle && layout.showSubtitle ? <Text dimColor>{subtitle}</Text> : null}
-        {layout.showSubtitle ? <Text> </Text> : null}
-        {layout.hasAbove ? <Button key={MORE_UP} plain dimColor onPress={() => step(values[values.indexOf(drawn[0] ?? '') - 1])}>{'  ↑ more'}</Button> : null}
-        {shown.map((row, i) => row.kind === 'separator'
+        {subtitle ? <Text dimColor>{subtitle}</Text> : null}
+        <Text> </Text>
+        {rows.map((row, i) => row.kind === 'separator'
           ? <Text key={`sep${i}`} dimColor>{`  ${'─'.repeat(Math.max(4, Math.min(width + 4, columns - 4)))}`}</Text>
           : (
             <Box key={`row:${row.value}`} flexDirection="row">
@@ -350,28 +310,35 @@ export function registerPicker(on: On, m: Monitor): void {
               {row.isCurrent ? <Text> ✔</Text> : null}
             </Box>
           ))}
-        {layout.hasBelow ? <Button key={MORE_DOWN} plain dimColor onPress={() => step(values[values.indexOf(drawn.at(-1) ?? '') + 1])}>{'  ↓ more'}</Button> : null}
         {state.notice ? <Text dimColor wrap="truncate">{`  ${state.notice}`}</Text> : null}
-        {layout.showSubtitle ? <Text> </Text> : null}
+        <Text> </Text>
         <Text dimColor>{paneFooter(state)}</Text>
       </Box>
     )
   })
 
-  // The arrows move the pane's focus ring over the row Buttons; the arrow mark follows it.
+  // The arrows move the pane's focus ring over the row Buttons; the arrow mark
+  // follows it, and the row it lands on is scrolled into view.
   on('ui.focus', { requestId: PICKER_PANE }, async ($, e, next) => {
     const state = await read($, pickerAtom)
     if (!state) return next(e)
-    const plan = planFocus({ values: state.entries.map(x => x.value), drawn, cursor: cursorOf(state), element: e.element, isPerson: e.origin.kind === 'person' })
+    const plan = planFocus({ values: state.entries.map(x => x.value), cursor: cursorOf(state), element: e.element, isPerson: e.origin.kind === 'person' })
     if (plan.kind === 'pass') return next(e)
     // The cursor follows the ring only where the ring went.
     if (plan.kind === 'land') {
       const r = await next(e)
-      // A move of our own (stepTo) set the cursor already; a late one must not undo a newer move.
-      if (r.deny === undefined && e.origin.kind === 'person') await setCursor($, plan.cursor)
+      if (r.deny !== undefined) return r
+      // A move of our own (the wrap) set the cursor already; a late one must not undo a newer move.
+      if (e.origin.kind === 'person') await setCursor($, plan.cursor)
+      await scrollTo($, plan.cursor)
       return r
     }
-    await stepTo($, plan.cursor, cursorOf(state))
+    // The wrap: the mark moves to the other end and into view, and the ring is
+    // asked to follow (its landing scrolls again). Neither ask is awaited: the
+    // engine settles one move at a time and this one is still in flight.
+    await setCursor($, plan.cursor)
+    void scrollTo($, plan.cursor)
+    void $.ui.focus({ requestId: PICKER_PANE, key: plan.cursor }).catch(() => {})
     return {}
   }).catch(($, e, next) => next(e))
 }

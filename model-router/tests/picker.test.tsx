@@ -4,9 +4,9 @@ import type { RenderSurface } from 'claude-code'
 import { validateConfig } from '../router/lib/schema.mjs'
 import type { Config } from '../router/lib/schema.mjs'
 import type { PickerState } from '../types'
-import { contentRows, cursorOf, familyEntries, familyOf, MORE_DOWN, MORE_UP, paneFooter, paneHeading, paneLayout, paneSubtitle, PICKER_PANE, pickerEntries, pickerRows, planFocus } from '../hooks/picker'
+import { contentRows, cursorOf, familyEntries, familyOf, paneFooter, paneHeading, paneSubtitle, PICKER_PANE, pickerEntries, pickerRows, planFocus, SCROLL_LOG } from '../hooks/picker'
 import { CONFIG, CONFIG_JSON, PANE_PROPS, readJson, routerStatus, run, start, step, up, world } from './world'
-import type { WorldOptions } from './world'
+import type { World, WorldOptions } from './world'
 import type { On } from 'claude-code'
 import type { RouterStatus } from '../hooks/client'
 
@@ -95,7 +95,7 @@ test('headings, subtitles and footers', () => {
   expect(paneFooter(family)).toBe(`Enter to confirm ${DOT} Esc to exit`)
 })
 
-// -- pure: rows, cursor, window, focus --------------------------------------
+// -- pure: rows, cursor, focus --------------------------------------
 
 test('rows are numbered, the current one is checked, disabled ones are marked, actions sit below a separator', () => {
   const rows = pickerRows(stateOf('router', { entries: pickerEntries({ mode: 'router', config, status: OR_DOWN, sessionModel: 'claude-opus-5-5', pick: null }) }))
@@ -118,50 +118,20 @@ test('the cursor starts on the current entry, else the first; a stale cursor fal
   expect(cursorOf(stateOf('model', { cursor: 'gone', current: 'routed:DS/ds-chat' }))).toBe('routed:DS/ds-chat')
 })
 
-test('layout: a tall pane shows every row and the subtitle', () => {
-  expect(paneLayout({ rowCount: 9, cursorRow: 0, bodyRows: 20, subtitleLines: 2 })).toEqual({ showSubtitle: true, start: 0, end: 9, hasAbove: false, hasBelow: false })
-  expect(paneLayout({ rowCount: 40, cursorRow: 0, subtitleLines: 2 })).toEqual({ showSubtitle: true, start: 0, end: 40, hasAbove: false, hasBelow: false })
-})
-
-test('layout: a short pane drops the subtitle first, then windows the rows around the cursor; heading and footer always fit', () => {
-  // 9 rows + 2 subtitle lines + 4 = 15 > 12: the subtitle goes, and 10 rows of room hold all 9
-  expect(paneLayout({ rowCount: 9, cursorRow: 0, bodyRows: 12, subtitleLines: 2 })).toEqual({ showSubtitle: false, start: 0, end: 9, hasAbove: false, hasBelow: false })
-  for (const bodyRows of [3, 4, 6, 8, 10, 12, 15]) {
-    for (let cursorRow = 0; cursorRow < 15; cursorRow++) {
-      const l = paneLayout({ rowCount: 15, cursorRow, bodyRows, subtitleLines: 2 })
-      expect(l.showSubtitle).toBe(false)
-      const used = 2 + (l.end - l.start) + (l.hasAbove || l.hasBelow ? 2 : 0)
-      expect(used <= Math.max(bodyRows, 2 + 1 + 2)).toBe(true)
-      expect(cursorRow >= l.start && cursorRow < l.end).toBe(true)
-      expect(l.hasAbove).toBe(l.start > 0)
-      expect(l.hasBelow).toBe(l.end < 15)
-    }
-  }
-  // the cursor keeps a row on each side while it is away from the ends
-  expect(paneLayout({ rowCount: 15, cursorRow: 7, bodyRows: 7, subtitleLines: 2 })).toEqual({ showSubtitle: false, start: 6, end: 9, hasAbove: true, hasBelow: true })
-})
-
 const VALUES = ['a', 'b', 'c', 'd', 'e']
 
 test('focus: landing on a row moves the cursor there', () => {
-  expect(planFocus({ values: VALUES, drawn: VALUES, cursor: 'a', element: 'b', isPerson: true })).toEqual({ kind: 'land', cursor: 'b' })
+  expect(planFocus({ values: VALUES, cursor: 'a', element: 'b', isPerson: true })).toEqual({ kind: 'land', cursor: 'b' })
 })
 
 test('focus: leaving the rows at either end wraps to the other end', () => {
-  expect(planFocus({ values: VALUES, drawn: VALUES, cursor: 'e', element: undefined, isPerson: true })).toEqual({ kind: 'refocus', cursor: 'a' })
-  expect(planFocus({ values: VALUES, drawn: VALUES, cursor: 'a', element: undefined, isPerson: true })).toEqual({ kind: 'refocus', cursor: 'e' })
-  // windowed: the other end is not drawn yet
-  expect(planFocus({ values: VALUES, drawn: ['c', 'd', 'e'], cursor: 'e', element: undefined, isPerson: true })).toEqual({ kind: 'refocus', cursor: 'a' })
-})
-
-test('focus: the scroll hints step the cursor past the window', () => {
-  expect(planFocus({ values: VALUES, drawn: ['b', 'c', 'd'], cursor: 'd', element: MORE_DOWN, isPerson: true })).toEqual({ kind: 'refocus', cursor: 'e' })
-  expect(planFocus({ values: VALUES, drawn: ['b', 'c', 'd'], cursor: 'b', element: MORE_UP, isPerson: true })).toEqual({ kind: 'refocus', cursor: 'a' })
+  expect(planFocus({ values: VALUES, cursor: 'e', element: undefined, isPerson: true })).toEqual({ kind: 'refocus', cursor: 'a' })
+  expect(planFocus({ values: VALUES, cursor: 'a', element: undefined, isPerson: true })).toEqual({ kind: 'refocus', cursor: 'e' })
 })
 
 test('focus: a move in the middle, or one a plugin makes, passes', () => {
-  expect(planFocus({ values: VALUES, drawn: VALUES, cursor: 'c', element: undefined, isPerson: true })).toEqual({ kind: 'pass' })
-  expect(planFocus({ values: VALUES, drawn: VALUES, cursor: 'e', element: undefined, isPerson: false })).toEqual({ kind: 'pass' })
+  expect(planFocus({ values: VALUES, cursor: 'c', element: undefined, isPerson: true })).toEqual({ kind: 'pass' })
+  expect(planFocus({ values: VALUES, cursor: 'e', element: undefined, isPerson: false })).toEqual({ kind: 'pass' })
 })
 
 test('contentRows: heading, subtitle lines, two blank lines, the rows with the separator, a notice, footer', () => {
@@ -194,6 +164,14 @@ async function pick($: Engine, value: string) {
 
 const focus = ($: Engine, element: string | undefined) =>
   $.ui.focus({ component: 'Pane', requestId: PICKER_PANE, plugin: 'model-router', ...(element !== undefined ? { element } : {}), origin: { kind: 'person' } })
+
+// The rows the mod asked $.ui.scroll to bring into view since `from` (a w.logs
+// length). The kit routes no plugin's own $.ui.scroll to a hook beneath (it rejects
+// "no implementation for ui.scroll"), so every ask is refused here and the refusal
+// is logged to debug with the key: that log is how a test sees the ask.
+// w.scrolls stays the record for a kit that does route it.
+const scrolledTo = (w: World, from: number) =>
+  w.logs.slice(from).flatMap(l => (l.startsWith(SCROLL_LOG) ? [l.slice(SCROLL_LOG.length).split(': ')[0]] : []))
 
 // The drawn row of an entry: the keyed Box holding the cursor mark, the Button and the check.
 function rowOf(tree: unknown, value: string): string {
@@ -325,10 +303,12 @@ test('with a pick the cursor and the check start on the routed entry', async ($,
   expect(rowOf(tree, 'claude:claude-opus-5-5')).not.toContain(CHECK)
 })
 
-test('the arrows: the focus ring moving onto a row moves the cursor mark there', async ($, on) => {
-  await opened($, on)
+test('the arrows: the focus ring moving onto a row moves the cursor mark there and scrolls it into view', async ($, on) => {
+  const w = await opened($, on)
   await draw($)
+  const before = w.logs.length
   await focus($, 'claude:sonnet')
+  expect(scrolledTo(w, before)).toEqual(['claude:sonnet'])
   const tree = await draw($)
   expect(rowOf(tree, 'claude:sonnet')).toContain(CURSOR)
   expect(rowOf(tree, 'claude:claude-opus-5-5')).not.toContain(CURSOR)
@@ -336,20 +316,20 @@ test('the arrows: the focus ring moving onto a row moves the cursor mark there',
 })
 
 // The kit has no engine to answer the mod's own $.ui.focus (it throws "no
-// implementation for ui.focus"), so every wrap or scroll here is a move the ring
-// does not follow: the cursor must go back to the focused row. The wrap and window
-// arithmetic is pinned by planFocus and paneLayout above; a person checks the real
-// moves (field checks C2).
-test('the arrows wrap: off the last row the hook keeps the ring and asks for the first; refused, the mark stays put', async ($, on) => {
-  world(on)
+// implementation for ui.focus"), so the ring's own move onto the other end is not
+// seen here; a person checks it (field checks C2). The mark and the scroll are.
+test('the arrows wrap: off the last row the mark lands on the first row and scrolls to it', async ($, on) => {
+  const w = world(on)
   await start($)
   await run($, 'model')
   await draw($)
   await focus($, 'builtin')
+  const before = w.logs.length
   expect(await focus($, undefined)).toEqual({})
+  expect(scrolledTo(w, before)).toEqual(['claude:claude-opus-5-5'])
   const tree = await draw($)
-  expect(rowOf(tree, 'builtin')).toContain(CURSOR)
-  expect(rowOf(tree, 'claude:claude-opus-5-5')).not.toContain(CURSOR)
+  expect(rowOf(tree, 'claude:claude-opus-5-5')).toContain(CURSOR)
+  expect(rowOf(tree, 'builtin')).not.toContain(CURSOR)
 })
 
 test('the /model pane: its title, subtitle and footer', async ($, on) => {
@@ -362,23 +342,24 @@ test('the /model pane: its title, subtitle and footer', async ($, on) => {
   expect(text).toContain(`Enter to confirm ${DOT} Esc to exit ${DOT} manage: /router`)
 })
 
-test('a short pane keeps the heading and the footer and windows the rows around the cursor', async ($, on) => {
+test('a short pane draws every row: the engine scrolls the body, the picker draws no window of its own', async ($, on) => {
   await opened($, on)
-  const short = JSON.stringify(await draw($, 'terminal', 8))
-  expect(short).toContain('"model-router"')
-  expect(short).toContain(`Enter to confirm ${DOT} Esc to exit`)
-  expect(short).toContain('\u2193 more')
-  expect(short).not.toContain('Doctor')
-  expect(short).not.toContain('Applies to this session only')
+  const short = await draw($, 'terminal', 8)
+  for (const e of entriesOf('router')) expect(rowOf(short, e.value)).toContain(e.label)
+  const text = JSON.stringify(short)
+  expect(text).toContain('"model-router"')
+  expect(text).toContain("Applies to this session only; use 'Set the current pick as default' to keep it.")
+  expect(text).toContain(`Enter to confirm ${DOT} Esc to exit`)
+  expect(text).not.toContain(' more')
 })
 
-test('a scroll the ring cannot follow puts the cursor and the window back', async ($, on) => {
-  await opened($, on)
-  await draw($, 'terminal', 8)
-  await $.ui.press({ plugin: 'model-router', key: MORE_DOWN, surface: 'terminal' })
-  const after = await draw($, 'terminal', 8)
-  expect(rowOf(after, 'claude:claude-opus-5-5')).toContain(CURSOR)
-  expect(JSON.stringify(after)).not.toContain('\u2191 more')
+test('opening the picker scrolls the cursor row into view', async ($, on) => {
+  const w = world(on)
+  await start($)
+  await run($, 'router', 'DS/ds-chat')
+  const before = w.logs.length
+  await run($, 'router')
+  expect(scrolledTo(w, before)).toEqual(['routed:DS/ds-chat'])
 })
 
 test('a pick no longer in the config leaves no entry checked', async ($, on) => {
@@ -392,11 +373,13 @@ test('a pick no longer in the config leaves no entry checked', async ($, on) => 
   expect(rowOf(tree, 'claude:claude-opus-5-5')).toContain(CURSOR)
 })
 
-test('a refused focus move leaves the cursor mark where it was', async ($, on) => {
+test('a refused focus move leaves the cursor mark where it was and scrolls nothing', async ($, on) => {
   const w = await opened($, on)
   await draw($)
   w.focusDeny = 'x'
+  const before = w.logs.length
   await focus($, 'claude:sonnet')
+  expect(scrolledTo(w, before)).toEqual([])
   const tree = await draw($)
   expect(rowOf(tree, 'claude:claude-opus-5-5')).toContain(CURSOR)
   expect(rowOf(tree, 'claude:sonnet')).not.toContain(CURSOR)
