@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { parseRouterArgs } from '../hooks/commands'
-import { band, CONFIG, CONFIG_JSON, readJson, run, start, step, TOKEN_FILE, world } from './world'
+import { CONFIG, CONFIG_JSON, readJson, run, start, step, TOKEN_FILE, world } from './world'
 
 describe('parseRouterArgs', () => {
   test('subcommands and their forms', () => {
@@ -43,7 +43,6 @@ test('/router <name> and /router claude set and clear the pick', async ($, on) =
   expect((await run($, 'router', 'ds-reasoner')).text).toBe('Main model: [DS] ds-reasoner')
   await step($)
   expect(w.stepModels.at(-1)).toBe('router:DS/ds-reasoner#claude-opus-5-5')
-  expect(await band($)).toBe('main: [DS] ds-reasoner \u00b7 haiku\u2192[DS] ds-chat')
   expect(w.statusLines.at(-1)).toBe(undefined)
   expect((await run($, 'router', 'claude')).text).toBe("Main model: Claude (this session's model)")
   await step($)
@@ -117,7 +116,6 @@ test('a failed /router restart shows DOWN and stops routing the pick', async ($,
   w.tool = sub => (sub === 'start' ? { ok: false, error: 'node not found' } : undefined)
   expect((await run($, 'router', 'restart')).text).toStartWith('Restart failed: ')
   expect(w.statusLines.at(-1)).toBe('model-router DOWN — /router doctor')
-  expect(await band($)).toBe(null)
   await step($)
   expect(w.stepModels.at(-1)).toBe('claude-opus-5-5')
 })

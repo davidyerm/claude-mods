@@ -16,28 +16,26 @@ export function label(ref: string, status: RouterStatus | null): string {
   }
 }
 
-export function statusLine({ pick, config, status, isDown, isWired = true }: { pick: string | null; config: Config; status: RouterStatus | null; isDown: boolean; isWired?: boolean }): string {
-  if (!isWired) return NOT_ACTIVE_LINE
-  if (isDown) return DOWN_LINE
-  const parts = [pick ? `main: ${label(pick, status)}` : 'router: /router to pick']
-  for (const family of FAMILIES) {
-    const ref = config.overrides[family]
-    if (ref) parts.push(`${family}→${label(ref, status)}`)
-  }
-  return parts.join(' · ')
-}
+type LineInput = { pick: string | null; config: Config; status: RouterStatus | null; isDown: boolean; isWired?: boolean }
 
-// Pure: does the status line have a problem to show? DOWN, not active, or a pick or
-// override whose provider is paused or unavailable (the lines with the warning label).
-// Anything else is normal info, which the band above the prompt holds instead.
-export function hasProblem({ pick, config, status, isDown, isWired = true }: { pick: string | null; config: Config; status: RouterStatus | null; isDown: boolean; isWired?: boolean }): boolean {
-  if (!isWired || isDown) return true
-  const refs = [pick, ...FAMILIES.map(f => config.overrides[f])]
-  return refs.some(ref => {
-    if (!ref) return false
+// Pure: the status line's text, or undefined when there is no problem (2026-10-25:
+// normal info is left to /router and /router doctor). Problems are: something is
+// routed but the session is not wired through the router; a wired session whose
+// router is DOWN (every request goes through it); a pick or override whose provider
+// is paused or unavailable (only those parts are listed). Installed with nothing
+// routed is not a problem.
+export function problemLine({ pick, config, status, isDown, isWired = true }: LineInput): string | undefined {
+  const overrides = FAMILIES.map(f => [f, config.overrides[f]] as const).filter((x): x is readonly [typeof x[0], string] => !!x[1])
+  if (!isWired) return pick || config.defaultMainModel || overrides.length > 0 ? NOT_ACTIVE_LINE : undefined
+  if (isDown) return DOWN_LINE
+  const isBad = (ref: string) => {
     const state = providerState(status, ref)
     return state === 'paused' || state === 'unavailable'
-  })
+  }
+  const parts: string[] = []
+  if (pick && isBad(pick)) parts.push(`main: ${label(pick, status)}`)
+  for (const [family, ref] of overrides) if (isBad(ref)) parts.push(`${family}→${label(ref, status)}`)
+  return parts.length > 0 ? parts.join(' · ') : undefined
 }
 
 export const isForSession = (ev: RouterEvent, sessionId: string) => ev.session === undefined || ev.session === sessionId

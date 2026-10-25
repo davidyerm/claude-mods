@@ -306,6 +306,13 @@ A subcommand name beats a same-named model; the user then writes `Provider/model
 
 > **2026-10-20 change (user decision):** Claude Code draws every plugin `$.ui.status` as a yellow `⚠ model-router: …` line, which a plugin can't style. So normal info now goes in a dim band above the prompt (an `AbovePrompt` render hook), and the status line is used only for problems: DOWN, `router: not active — /router setup, then restart Claude Code`, or a pick or override whose provider is paused or unavailable (the full line, with the `⚠  paused` / `⚠  unavailable` labels). While there is no problem the status line is cleared (`$.ui.status(undefined)`) and the band shows the line above, e.g. `main: [DS] ds-chat · haiku→[DS] ds-chat` or `router: /router to pick`. The two never show the same text: with a problem the band draws nothing. The strings are unchanged.
 
+> **2026-10-25 change (user decision):** the band is gone; the mod draws nothing above the prompt, and `/router` and `/router doctor` give the normal info. The status line shows only a problem, and lists only the parts that have one:
+> - `router: not active …` only when something is routed (a pick, a `defaultMainModel` or an override) but the session is not wired through the router;
+> - DOWN when the session is wired and the router is down, routed or not, since every request goes through it;
+> - each pick or override whose provider is paused or unavailable, e.g. `main: [DS] ⚠  paused`, without the healthy parts.
+>
+> Installed with nothing routed is not a problem: the status line stays empty.
+
 **Toasts** come from events:
 
 | Event | Toast |

@@ -6,7 +6,7 @@ Spec §10.5. Run on Windows with the real corporate gateway and one real provide
 - [ ] `/router setup` with `apiKeyHelper` auth and the internal CA; restart; `/router doctor` is all ✓ (or ⚠ with a reason).
 - [ ] Interactive session with `overrides.haiku` set: the title request and a `/compact` show as routed in `~/.claude/model-router/router.log`.
 - [ ] `/model` shows the unified picker; "Claude Code's picker…" opens the stock picker.
-- [ ] Picking a Claude model in the stock picker clears a routed pick (toast, status line).
+- [ ] Picking a Claude model in the stock picker clears a routed pick (toast; the status line stays empty).
 - [ ] `[claude-code:unrecognized_model]`: note where it shows in the interactive UI.
 - [ ] A session longer than the `apiKeyHelper` token TTL keeps working (pass-through and fallback use the fresh token).
 - [ ] Two parallel sessions: a fallback toast shows only in the session that made the request; killing the router respawns it within 10 s with "model-router restarted"; `/router uninstall` in one session leaves the other working.

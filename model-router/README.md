@@ -75,7 +75,12 @@ The router reads the key variable from the environment it was started in. Put ke
 - **Several sessions** share one router. It starts with the first session and exits after 30 idle minutes.
 - **Context windows** of routed models are unknown to Claude Code, so its context % and auto-compact use defaults. The separate `model-limits` plugin (planned) will handle that.
 - **The picker** looks like Claude Code's own: numbered rows with a dim description, `✔` on the current model and `❯` on the cursor. ↑/↓ move (wrapping at the ends), Enter or a digit 1–9 chooses, Esc closes. Unavailable entries are dim and say why. In a short terminal the pane scrolls: ↓ and ↑ walk every row and keep the `❯` row in view. Rows past 9 have no digit.
-- **Where the status shows** (2026-10-20). Normal info is a dim line in a band above the prompt: `main: [DS] ds-chat · haiku→[DS] ds-chat`, or `router: /router to pick`. The status line (which Claude Code draws as a yellow `⚠ model-router: …`) is used only for problems: `model-router DOWN — /router doctor`, `router: not active — /router setup, then restart Claude Code`, or a pick or override whose provider is paused or unavailable (`[DS] ⚠  paused`). While all is well the status line is empty.
+- **Where the status shows** (2026-10-25). The mod shows nothing while all is well: `/router` and `/router doctor` tell you the current pick, the overrides and the router's health. The status line (which Claude Code draws as a yellow `⚠ model-router: …`) appears only for a problem:
+  - `model-router DOWN — /router doctor`, when the session goes through the router and it is down;
+  - `router: not active — /router setup, then restart Claude Code`, when something is routed (a default, an override) but the session does not go through the router;
+  - a pick or override whose provider is paused or unavailable, listing only those, e.g. `main: [DS] ⚠  paused`.
+
+  Installed with nothing routed is not a problem.
 - **`/model` picks persist, `/router` picks don't.** A pick through `/model` becomes the default for new sessions, as the built-in picker's does: a routed pick sets `defaultMainModel`, and a Claude pick removes it, with a toast (`Default for new sessions: back to Claude (removed …)`). A Claude pick is a Claude row in the picker, `/model <name>`, or a pick in the built-in picker (directly or through the "Claude Code's picker…" row); the mod notices the last within 2 s, whether or not a routed model was picked. `/router <model>` and the `/router` picker change only the current session; `/router default` sets the default explicitly. If the default can't be saved, the pick still applies and the confirmation says why.
 - Claude Code may log `[claude-code:unrecognized_model]` for routed models; that is expected.
 

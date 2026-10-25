@@ -1,11 +1,10 @@
 import { expect, test } from 'claude-code/testing'
 import type { Plugin } from 'claude-code/testing'
-import { band, start, world } from './world'
+import { band, CONFIG_JSON, start, world } from './world'
 
-// The band above the prompt is one instance for every plugin: each hook draws its
-// own part and wraps what the hooks beneath drew, so no band hides another. The
-// kit cannot load rtl-mode from here (outside this plugin's folder), so a stand-in
-// draws its band the way rtl-mode does.
+// model-router draws nothing above the prompt (2026-10-25), so another plugin's
+// band shows as it is. The kit cannot load rtl-mode from here (outside this
+// plugin's folder), so a stand-in draws its band the way rtl-mode does.
 const OTHER: Plugin = {
   name: 'other-band',
   register: on => {
@@ -23,17 +22,13 @@ const OTHER: Plugin = {
   },
 }
 
-const LINE = 'router: /router to pick \u00b7 haiku\u2192[DS] ds-chat'
-
-test('with another band plugin loaded, both bands show, and the engine node once', { plugins: [OTHER] }, async ($, on) => {
-  world(on)
+test('with another band plugin loaded, only its band shows', { plugins: [OTHER] }, async ($, on) => {
+  world(on, { config: { ...CONFIG_JSON, defaultMainModel: 'DS/ds-chat' } })
   await start($)
-  const text = await band($)
-  expect(text).toContain(LINE)
-  expect(text).toContain('OTHER BAND')
+  expect(await band($)).toBe('OTHER BAND')
 })
 
-test('with a problem, only the other band shows', { plugins: [OTHER] }, async ($, on) => {
+test('with a problem, the status line carries it and only the other band shows', { plugins: [OTHER] }, async ($, on) => {
   const w = world(on, { env: { ANTHROPIC_BASE_URL: undefined } })
   await start($)
   expect(await band($)).toBe('OTHER BAND')

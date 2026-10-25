@@ -13,7 +13,7 @@
 
 - Branch `model-router`, PR https://github.com/davidyerm/claude-mods/pull/1. The PR is not merged.
 - The plugin is fully built and passes on the dev machine:
-  - router 112 tests, mod 232, rtl-mode 12
+  - router 112 tests, mod 231, rtl-mode 12
   - `tsc` clean
   - headless e2e 3/3
   - `claude plugin validate` passes
@@ -118,7 +118,7 @@ This runs against a **local fake API with a dummy key**. It touches no real acco
 > - ↑/↓ walk every row and wrap, and quick presses keep up.
 > - Enter picks the ❯ row after a wrap or a scroll.
 > - A digit picks a row even when it is scrolled out of view.
-> - The band shows next to rtl-mode's toggle, and the yellow line appears only for problems.
+> - The band shows next to rtl-mode's toggle, and the yellow line appears only for problems. (Since then, on 2026-10-25, the band was removed: the mod shows nothing above the prompt, and a healthy session has an empty status line. Step 1 below checks this; it has not been re-run.)
 > - In a very short window the title and the hint line scroll away with the rows.
 >
 > Re-run only if the real environment has a different Claude Code version.
@@ -129,7 +129,12 @@ The picker opens as a **dialog** (`focus`, `closeOnEscape`, `holdToasts`, and `r
 
 **Claude: give the human these steps, then wait for their notes.**
 
-1. Before opening the picker, look above the prompt (changed 2026-10-20). With a healthy router, the dim band above the prompt shows the line (`router: /router to pick`, or `main: [P] m` plus any overrides), and the status line has **no** yellow `⚠ model-router: …` entry. That status line appears only for a problem: DOWN, not active, or a paused or unavailable provider; then the band shows nothing from the mod. With rtl-mode also loaded, both lines show above the prompt: the model-router line and the `RTL ON`/`RTL OFF` toggle, and neither hides the other. Then, in a **tall** terminal (40+ rows), type `/model`. Check:
+1. Before opening the picker, look above the prompt (changed 2026-10-25). With a healthy router, model-router shows **nothing** there, and the status line has **no** yellow `⚠ model-router: …` entry. That status line appears only for a problem:
+   - DOWN;
+   - not active while something is routed;
+   - a paused or unavailable provider, listing only that pick or override.
+
+   With rtl-mode loaded, its `RTL ON`/`RTL OFF` toggle still shows above the prompt. Then, in a **tall** terminal (40+ rows), type `/model`. Check:
    - the title "Select model", the dim subtitle, numbered rows, and the footer `Enter to confirm · Esc to exit · manage: /router`;
    - `✔` and `❯` on the current model.
 2. Press ↓ a few times. `❯` should follow the highlighted row. At the last row ↓ should wrap to the first; at the first row ↑ should wrap to the last. After a wrap and after a scroll, press Enter: the row chosen must be the one marked ❯. (Then undo the pick: `/router claude`, or `/model sonnet` and the step 5 check if it was a `/model` routed pick.)
