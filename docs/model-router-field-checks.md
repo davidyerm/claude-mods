@@ -145,7 +145,7 @@ Record the result as row "C2 picker" in `docs/model-router-verification.md`. If 
 
 ## Part D: decision table (Claude applies this for any FAIL)
 
-The plan's Task 4 table, adjusted to the code as built:
+The plan's Task 4 table, adjusted to the code as built. V1, V2, V3, V5, V6 and V7 have passed, so only the V4 row can still apply. The other rows apply only if a re-run on a different Claude Code version fails.
 
 | Failed | Change |
 |---|---|
