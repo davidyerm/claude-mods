@@ -41,3 +41,12 @@ Probe mod `docs/model-router-spike/probe`, against the capture server with a dum
 - V1 note: `/probe builtin` (a `$.command.run({ command: 'model' })` made inside the probe's own `command.run` hook) was refused: `HooksError: mr-probe: command.run: called from a command.run hook, it would wait on the turn this hook is holding`. The built-in picker did not open. model-router makes this call only from the picker pane's `onSelect` ("Claude Code's picker…" and the Claude alias entries), which is not a `command.run` hook. **V1b** checks that path in a real session.
 - V6: `$.fs.write OK on C:\Users\Duduy/.claude/settings.json`. The mixed slashes come from `USERPROFILE + '/.claude'`; Windows accepts them, and only the display is affected.
 - V3: `launcher exit 0 after 372 ms: spawned pid=15984`. `curl :4198` answered `alive pid=15984` before reload, after reload, and after `/exit`. `/quit` stopped it.
+
+## Terminal checks of the picker and status (dev machine, 2026-10-20 to 2026-10-25)
+
+Run against the capture server through a test router (`MODEL_ROUTER_HOME` under `.superpowers/`, port 4142), with rtl-mode loaded too.
+
+- The picker looks like the built-in `/model` picker. Arrow keys walk every row and wrap, quick repeated presses keep up, and Enter picks the marked row after a wrap. A digit picks a row even when it is scrolled out of view. In a very short window the title and the hint line scroll away with the rows.
+- A routed pick in `/model` saves the default for new sessions. Picking Sonnet removes it and shows the "back to Claude" toast. `router.log` shows `DS/ds-chat` requests going to the provider (`routed 200`).
+- The dim line above the prompt (`router: /router to pick`, `main: [DS] ds-chat`) shows next to rtl-mode's `RTL OFF`. While nothing is wrong, the yellow line stays empty.
+- When the provider is down, Claude Code's own retries made 3 failures from one prompt. Then the breaker opened: toasts `[DS] connect: ECONNREFUSED → used claude-opus-5-5` and `[DS] ⚠  paused for 5 min after 3 failures; requests go to Claude`, the yellow `model-router: main: [DS] ⚠  paused`, and the dim line hidden. After the router stopped itself on idle and model-router restarted it, the pause was gone and routing resumed. This is as designed: breaker state lives in memory only.
