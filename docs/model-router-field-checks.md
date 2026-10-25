@@ -9,16 +9,31 @@
 >
 > Load the `plugin-authoring` skill before changing any mod code.
 
-## Where things stand (2026-10-17)
+## Where things stand (2026-10-25)
 
 - Branch `model-router`, PR https://github.com/davidyerm/claude-mods/pull/1. The PR is not merged.
 - The plugin is fully built and passes on the dev machine:
-  - router 112 tests, mod 220, rtl-mode 12
+  - router 112 tests, mod 232, rtl-mode 12
   - `tsc` clean
   - headless e2e 3/3
   - `claude plugin validate` passes
-- **Already verified:** V7 (`#` survives in the model string) and V2 headless (session-id header matches `$.session.id()`). Evidence is in `docs/model-router-verification.md`.
-- **Open:** V4, plus V1, V2 interactive, V3, V5 and V6. Then the manual release checklist (`model-router/docs/release-checklist.md`) with the real gateway and one real provider. Then merging the PR.
+- **Done on the dev machine** (Claude Code 2.1.301–2.1.310; evidence in `docs/model-router-verification.md`):
+  - V7: `#` survives in the model string.
+  - V2: the session-id header matches `$.session.id()`, both headless and interactive.
+  - V1 and V1b: the `/model` takeover answers, `next(e)` opens the built-in picker, and the picker's "Claude Code's picker…" row opens it too.
+  - V3: the detached launcher survives hot reload and `/exit`.
+  - V5: a built-in pick is visible through `$.session.model()`.
+  - V6: settings writes need no prompt.
+  - Part C (probe session) and Part C2 (picker look and keys), plus these real-terminal checks:
+    - the band above the prompt next to rtl-mode;
+    - routed picks saving the default for new sessions;
+    - the breaker pausing a failing provider.
+- **Open, on the real environment only:**
+  - Part B (V4, gateway certificate trust).
+  - Part E (release checklist with the real gateway and one real provider), including V2 for background calls: no title request reached the fake API, so check `router.log` there.
+  - The final marketplace name.
+  - Merging the PR.
+- **If the real environment runs a different Claude Code version** than 2.1.310, re-run Part C2 there. The picker's keys depend on engine behaviour. Part C does not need re-running.
 - Background:
   - spec: `docs/superpowers/specs/2026-10-16-model-router-design.md`
   - plan: `docs/superpowers/plans/2026-10-16-model-router.md` (Tasks 2–4 are what this file finishes)
@@ -61,6 +76,8 @@ cd model-router && node --test "router/test/*.test.mjs"
 
 ## Part C: probe session for V1, V2 interactive, V3, V5, V6 (human, about 10 minutes)
 
+> **Status: DONE on the dev machine (2026-10-17). All PASS; see the verification doc.** No need to re-run it on the real environment. The steps stay here for reference.
+
 This runs against a **local fake API with a dummy key**. It touches no real account and doesn't need the gateway, so it can run on any machine. It just wasn't done on the dev machine.
 
 **Claude: give the human these steps exactly, then wait for their paste.**
@@ -96,6 +113,15 @@ This runs against a **local fake API with a dummy key**. It touches no real acco
 3. Record each row in `docs/model-router-verification.md`. Keep `capture.jsonl` and `stderr.txt` out of git; they are already in `docs/model-router-spike/.gitignore`.
 
 ## Part C2: the picker's look and keys (human, about 5 minutes)
+
+> **Status: DONE on the dev machine (2026-10-20 to 2026-10-25, Claude Code 2.1.310). All PASS.**
+> - ↑/↓ walk every row and wrap, and quick presses keep up.
+> - Enter picks the ❯ row after a wrap or a scroll.
+> - A digit picks a row even when it is scrolled out of view.
+> - The band shows next to rtl-mode's toggle, and the yellow line appears only for problems.
+> - In a very short window the title and the hint line scroll away with the rows.
+>
+> Re-run only if the real environment has a different Claude Code version.
 
 The picker was rebuilt on 2026-10-17 to imitate the built-in `/model` picker. The tests check the tree it draws, not what a real terminal shows, so a person checks the keys. It needs a session with the mod loaded and at least one provider in `~/.claude/model-router.json`. The router does not need a real key.
 
@@ -178,3 +204,9 @@ These were left open from the reviews:
 - The e2e script runs with the real `~/.claude` and environment (not isolated), and doesn't clean up its temp folders.
 - The `/router add` key field is not masked (an engine limitation), and the draft stays in state after Esc.
 - `parseMaxTokensLimit` takes the largest number below the requested value, which is a heuristic. `/router forget` undoes a wrong guess.
+- The picker:
+  - In a very short window, its title and hint line scroll away with the rows.
+  - Its dialog height (`rows`) assumes an 80-column subtitle.
+  - A burst of arrow presses that the engine merges into one move of 2+ rows scrolls the pane instead of walking. This was not seen in practice.
+- Breaker state, the 5-minute pause, lives in router memory, so a router restart (for example after its 30-minute idle exit) clears it. This is as designed.
+- Claude Code retries a failed request by itself, so one prompt can count as three provider failures and pause the provider at once.
