@@ -1,0 +1,74 @@
+import { expect, test } from 'claude-code/testing'
+import { eventsOf, forgottenOf, keysOf, limitsOf, probeOf, replyOf } from '../hooks/client'
+import { decideEnsure, finishEnsure } from '../hooks/lifecycle'
+import { VERSION } from '../router/version.mjs'
+import { routerStatus } from './world'
+
+test('probeOf tells ours, foreign and down apart', () => {
+  expect(probeOf({ ok: true, status: 200, json: routerStatus() }).kind).toBe('ours')
+  expect(probeOf({ ok: true, status: 200, json: { hello: 'world' } }).kind).toBe('foreign')
+  expect(probeOf({ ok: true, status: 200, json: null }).kind).toBe('foreign')
+  const gone = probeOf({ ok: false, reason: 'Error: connect ECONNREFUSED' })
+  expect(gone.kind).toBe('down')
+  expect(gone.kind === 'down' && gone.reason.includes('ECONNREFUSED')).toBe(true)
+})
+
+test('a running router of this version is reused without launching', () => {
+  const status = routerStatus()
+  expect(decideEnsure({ kind: 'ours', status }, 4141, VERSION, false)).toEqual({ action: 'reuse', status })
+})
+
+test('a down router is launched through start', () => {
+  expect(decideEnsure({ kind: 'down', reason: 'x' }, 4141, VERSION, false)).toEqual({ action: 'launch', args: ['start'] })
+})
+
+test('another version is handed to the launcher (which drains and replaces it)', () => {
+  const old = routerStatus({ version: '0.0.9' })
+  expect(decideEnsure({ kind: 'ours', status: old }, 4141, VERSION, false)).toEqual({ action: 'launch', args: ['start'] })
+  const fresh = routerStatus()
+  expect(finishEnsure({ ok: true, started: true }, { kind: 'ours', status: fresh })).toEqual({ ok: true, status: fresh, started: true })
+})
+
+test('a foreign port is reported without launching; a failed launch reports the launcher error', () => {
+  expect(decideEnsure({ kind: 'foreign' }, 4141, VERSION, false)).toEqual({ action: 'foreign', reason: 'port 4141 is used by another program; set "port" in model-router.json' })
+  expect(finishEnsure({ ok: false, error: 'EACCES' }, { kind: 'down', reason: '' })).toEqual({ ok: false, reason: 'EACCES' })
+  expect(finishEnsure({ ok: true }, { kind: 'down', reason: 'ECONNREFUSED' })).toEqual({ ok: false, reason: 'ECONNREFUSED' })
+  expect(finishEnsure({ ok: true }, { kind: 'foreign' })).toEqual({ ok: false, reason: 'the port answered, but not as model-router' })
+})
+
+test('force asks the launcher to replace the running router', () => {
+  const status = routerStatus()
+  expect(decideEnsure({ kind: 'ours', status }, 4141, VERSION, true)).toEqual({ action: 'launch', args: ['start', '--force'] })
+})
+
+test('replyOf parses JSON and falls back to null for other bodies', () => {
+  expect(replyOf({ status: 200, text: '{"a":1}' })).toEqual({ ok: true, status: 200, json: { a: 1 } })
+  expect(replyOf({ status: 502, text: '<html>bad gateway</html>' })).toEqual({ ok: true, status: 502, json: null })
+  expect(replyOf({ status: 200, text: '' })).toEqual({ ok: true, status: 200, json: null })
+})
+
+test('shape guards return null for odd replies instead of throwing', () => {
+  const odd = [null, 'x', [], {}, { keys: 3 }]
+  for (const json of odd) {
+    const r = { ok: true as const, status: 200, json }
+    expect(eventsOf(r)).toBe(null)
+    expect(limitsOf(r)).toBe(null)
+    expect(keysOf(r)).toBe(null)
+    expect(forgottenOf(r)).toBe(null)
+  }
+  const bad = { ok: true as const, status: 500, json: { events: [], lastSeq: 0, keys: {}, forgotten: 1, learned: {} } }
+  expect(eventsOf(bad)).toBe(null)
+  expect(keysOf({ ok: false, reason: 'x' })).toBe(null)
+  expect(eventsOf({ ok: true, status: 200, json: { events: [{ seq: 2 }], lastSeq: 2 } })).toEqual({ events: [{ seq: 2 }], lastSeq: 2 })
+  expect(limitsOf({ ok: true, status: 200, json: { learned: {}, policy: null } })).toEqual({ learned: {}, policy: null })
+  expect(keysOf({ ok: true, status: 200, json: { keys: { A: 'fp' } } })).toEqual({ A: 'fp' })
+  expect(forgottenOf({ ok: true, status: 200, json: { forgotten: 3 } })).toBe(3)
+})
+
+test('a newer running router is reused; an older one is replaced; force always replaces (final fix M1)', () => {
+  const newer = routerStatus({ version: '99.0.0' })
+  expect(decideEnsure({ kind: 'ours', status: newer }, 4141, VERSION, false)).toEqual({ action: 'reuse', status: newer })
+  expect(decideEnsure({ kind: 'ours', status: newer }, 4141, VERSION, true)).toEqual({ action: 'launch', args: ['start', '--force'] })
+  const older = routerStatus({ version: '0.0.1' })
+  expect(decideEnsure({ kind: 'ours', status: older }, 4141, VERSION, false)).toEqual({ action: 'launch', args: ['start'] })
+})

@@ -43,8 +43,11 @@ test('/rtl on, off and bare toggle the mode', async ($, on) => {
 
 test('the band shows the mode and a press toggles it', async ($, on) => {
   mock.store(on)
+  // The engine's own band beneath the plugins: the toggle is drawn above it.
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'engine', ref: 0 }))
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
+    expect(JSON.stringify(await ui.drawn()).split('"type":"engine"').length - 1).toBe(1)
     const before = (await ui.find({ key: 'rtl-toggle' }))?.text ?? ''
     await ui.press({ key: 'rtl-toggle' })
     const after = (await ui.find({ key: 'rtl-toggle' }))?.text ?? ''
